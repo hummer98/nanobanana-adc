@@ -1,0 +1,26 @@
+{
+  "name": "nanobanana-adc",
+  "version": "0.1.0",
+  "description": "Gemini 3 Pro Image CLI with Application Default Credentials (ADC) support",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "nanobanana-adc": "./bin/nanobanana-adc"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "commander": "^12.1.0",
+    "google-auth-library": "^9.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
