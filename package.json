@@ -2,6 +2,30 @@
   "name": "nanobanana-adc",
   "version": "0.1.0",
   "description": "Gemini 3 Pro Image CLI with Application Default Credentials (ADC) support",
+  "license": "MIT",
+  "keywords": [
+    "gemini",
+    "gemini-3",
+    "nano-banana",
+    "nano-banana-pro",
+    "vertex-ai",
+    "adc",
+    "application-default-credentials",
+    "image-generation",
+    "text-to-image",
+    "claude-code",
+    "claude-code-plugin",
+    "gcp",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yamamoto/nanobanana-adc.git"
+  },
+  "homepage": "https://github.com/yamamoto/nanobanana-adc#readme",
+  "bugs": {
+    "url": "https://github.com/yamamoto/nanobanana-adc/issues"
+  },
   "private": false,
   "type": "module",
   "bin": {
