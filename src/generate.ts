@@ -81,8 +81,12 @@ async function generateViaVertexFetch(
 ): Promise<string> {
   const { accessToken, project, location } = auth;
 
+  const host =
+    location === 'global'
+      ? 'aiplatform.googleapis.com'
+      : `${location}-aiplatform.googleapis.com`;
   const endpoint =
-    `https://${location}-aiplatform.googleapis.com/v1` +
+    `https://${host}/v1` +
     `/projects/${project}/locations/${location}` +
     `/publishers/google/models/${options.model}:generateContent`;
 
