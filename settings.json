@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "diff -q \"${CLAUDE_PLUGIN_ROOT}/package.json\" \"${CLAUDE_PLUGIN_DATA}/package.json\" >/dev/null 2>&1 || (mkdir -p \"${CLAUDE_PLUGIN_DATA}\" && cp \"${CLAUDE_PLUGIN_ROOT}/package.json\" \"${CLAUDE_PLUGIN_DATA}/\" && { [ -f \"${CLAUDE_PLUGIN_ROOT}/package-lock.json\" ] && cp \"${CLAUDE_PLUGIN_ROOT}/package-lock.json\" \"${CLAUDE_PLUGIN_DATA}/\"; true; } && cd \"${CLAUDE_PLUGIN_DATA}\" && npm install --omit=dev --no-audit --no-fund)"
+          },
+          {
+            "type": "command",
+            "command": "[ -e \"${CLAUDE_PLUGIN_ROOT}/node_modules\" ] || ln -sfn \"${CLAUDE_PLUGIN_DATA}/node_modules\" \"${CLAUDE_PLUGIN_ROOT}/node_modules\""
+          },
+          {
+            "type": "command",
+            "command": "[ -f \"${CLAUDE_PLUGIN_ROOT}/dist/cli.js\" ] || (cd \"${CLAUDE_PLUGIN_DATA}\" && npm install --no-audit --no-fund && cd \"${CLAUDE_PLUGIN_ROOT}\" && \"${CLAUDE_PLUGIN_DATA}/node_modules/.bin/tsc\" -p \"${CLAUDE_PLUGIN_ROOT}/tsconfig.json\")"
+          }
+        ]
+      }
+    ]
+  }
+}
