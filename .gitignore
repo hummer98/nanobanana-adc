@@ -5,3 +5,9 @@ dist/
 .env
 .envrc
 .config/
+
+# cmux-team が生成する git worktree ディレクトリ
+.worktrees/
+
+# macOS / エディタの生成物
+.DS_Store
