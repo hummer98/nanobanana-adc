@@ -1,5 +1,7 @@
 # nanobanana-adc
 
+English · [日本語](./README.ja.md)
+
 > Gemini 3 Pro Image (Nano Banana Pro) CLI with first-class Application Default Credentials support — use Vertex AI from CI, Cloud Run, or any gcloud-authenticated workstation without handing out API keys.
 
 ## Why nanobanana-adc?
