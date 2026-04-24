@@ -9,7 +9,7 @@
       "name": "nanobanana-adc",
       "source": "./",
       "description": "Gemini 3 Pro Image (Nano Banana Pro) CLI with ADC support for Vertex AI",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "hummer98"
       },

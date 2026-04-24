@@ -13,7 +13,7 @@ const program = new Command();
 program
   .name('nanobanana-adc')
   .description('Gemini 3 Pro Image CLI with ADC support')
-  .version('0.1.0')
+  .version('0.1.1')
   .requiredOption('-p, --prompt <text>', 'prompt text (required)')
   .option('-o, --output <path>', 'output file path', 'output.png')
   .option(
