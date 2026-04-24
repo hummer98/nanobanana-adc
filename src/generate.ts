@@ -16,6 +16,14 @@ export type GenerateAspect =
   | '21:9' | '9:21'
   | '5:4';
 
+export const PERSON_GENERATION_MODES = [
+  'ALLOW_ALL',
+  'ALLOW_ADULT',
+  'ALLOW_NONE',
+] as const;
+
+export type PersonGeneration = (typeof PERSON_GENERATION_MODES)[number];
+
 export interface GenerateOptions {
   prompt: string;
   aspect: GenerateAspect;
@@ -23,6 +31,7 @@ export interface GenerateOptions {
   model: string;
   output: string;
   apiKey?: string;
+  personGeneration?: PersonGeneration;
 }
 
 export const ASPECT_MAP: Record<GenerateAspect, string> = {
@@ -48,6 +57,16 @@ export function assertAspect(value: string): asserts value is GenerateAspect {
   if (!(value in ASPECT_MAP)) {
     throw new Error(
       `[generate] unsupported aspect: ${value}. supported: ${Object.keys(ASPECT_MAP).join(', ')}`,
+    );
+  }
+}
+
+export function assertPersonGeneration(
+  value: string,
+): asserts value is PersonGeneration {
+  if (!(PERSON_GENERATION_MODES as readonly string[]).includes(value)) {
+    throw new Error(
+      `[generate] unsupported personGeneration: ${value}. supported: ${PERSON_GENERATION_MODES.join(', ')}`,
     );
   }
 }
@@ -99,6 +118,9 @@ async function generateViaVertexFetch(
       imageConfig: {
         aspectRatio: ASPECT_MAP[options.aspect],
         imageSize: options.size,
+        ...(options.personGeneration
+          ? { personGeneration: options.personGeneration }
+          : {}),
       },
     },
   };
@@ -156,6 +178,9 @@ async function generateViaSdk(
       imageConfig: {
         aspectRatio: ASPECT_MAP[options.aspect],
         imageSize: options.size,
+        ...(options.personGeneration
+          ? { personGeneration: options.personGeneration }
+          : {}),
       },
     } as any,
   });

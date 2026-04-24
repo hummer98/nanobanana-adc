@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
-import { Command, Option } from 'commander';
+import { Command, InvalidArgumentError, Option } from 'commander';
 import {
   generate,
   assertAspect,
+  assertPersonGeneration,
+  PERSON_GENERATION_MODES,
   type GenerateOptions,
   type GenerateSize,
 } from './generate.js';
@@ -13,7 +15,7 @@ const program = new Command();
 program
   .name('nanobanana-adc')
   .description('Gemini 3 Pro Image CLI with ADC support')
-  .version('0.1.1')
+  .version('0.2.0')
   .requiredOption('-p, --prompt <text>', 'prompt text (required)')
   .option('-o, --output <path>', 'output file path', 'output.png')
   .option(
@@ -27,7 +29,20 @@ program
       .default('1K'),
   )
   .option('-m, --model <id>', 'model id', 'gemini-3-pro-image-preview')
-  .option('--api-key <key>', 'Gemini API key (falls back to GEMINI_API_KEY / ADC)');
+  .option('--api-key <key>', 'Gemini API key (falls back to GEMINI_API_KEY / ADC)')
+  .addOption(
+    new Option('--person-generation <mode>', 'control person generation')
+      .choices([...PERSON_GENERATION_MODES])
+      .argParser((v: string) => {
+        const upper = v.toUpperCase();
+        if (!(PERSON_GENERATION_MODES as readonly string[]).includes(upper)) {
+          throw new InvalidArgumentError(
+            `Allowed choices are ${PERSON_GENERATION_MODES.join(', ')}.`,
+          );
+        }
+        return upper;
+      }),
+  );
 
 async function main(): Promise<void> {
   program.parse(process.argv);
@@ -39,6 +54,7 @@ async function main(): Promise<void> {
     size: string;
     model: string;
     apiKey?: string;
+    personGeneration?: string;
   }>();
 
   assertAspect(opts.aspect);
@@ -51,6 +67,11 @@ async function main(): Promise<void> {
     model: opts.model,
     apiKey: opts.apiKey,
   };
+
+  if (opts.personGeneration) {
+    assertPersonGeneration(opts.personGeneration);
+    generateOptions.personGeneration = opts.personGeneration;
+  }
 
   await generate(generateOptions);
 }
