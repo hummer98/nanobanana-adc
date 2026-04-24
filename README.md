@@ -16,6 +16,9 @@ Most existing Claude Code skills for Gemini image generation (cc-nano-banana, cc
 - `GEMINI_API_KEY` fallback for lightweight setups.
 - 10 aspect ratios: 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 21:9, 9:21, 5:4.
 - 3 resolutions: 1K, 2K, 4K.
+- AIview / Automatic1111 compatible `tEXt parameters` embedded in generated
+  PNGs (opt out with `--no-embed-metadata`). Google's C2PA / SynthID
+  provenance chunks are preserved.
 - Ships as both an npm binary and a Claude Code plugin from the same repo.
 - TypeScript, strict mode, Node.js ≥ 18.
 
@@ -83,8 +86,36 @@ nanobanana-adc -p "a bustling plaza" --person-generation ALLOW_ADULT
 | `--model` | `-m` | `gemini-3-pro-image-preview` | Model ID. |
 | `--api-key` | — | — | Explicit Gemini API key (overrides env and ADC). |
 | `--person-generation` | — | — | Control person generation. One of `ALLOW_ALL`, `ALLOW_ADULT`, `ALLOW_NONE` (case-insensitive). Omit to use the model default. |
+| `--no-embed-metadata` | — | embed | Disable embedding of the AIview-compatible `tEXt parameters` chunk in PNG output. JPEG output is unaffected (metadata is never embedded into JPEG in this release). |
 
 > Note on `--person-generation`: currently accepted on the Vertex AI (ADC) path. The AI Studio v1beta endpoint used by the `--api-key` / `GEMINI_API_KEY` path does not yet recognize this field for `gemini-3-pro-image-preview` and returns `400 Unknown name "personGeneration"`. There are also reports that some AI Studio API-key tiers may reject `ALLOW_ALL` with a 400 error (not yet confirmed for the Gemini API path). If you hit either, fall back to omitting the flag or use the ADC path.
+
+## Metadata
+
+By default, generated PNG files carry an Automatic1111 / AIview-compatible
+`tEXt` chunk with keyword `parameters`. The payload is a two-line string
+whose first line is the prompt and whose second line is a comma-separated
+list of CLI options:
+
+```
+<prompt>
+Steps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image-preview, Aspect: 1:1[, Person generation: ALLOW_ADULT]
+```
+
+`Steps: 1, Sampler: gemini` are placeholder fields required by AIview's
+`parsePrompt` (it splits on `Steps:`). The chunk is inserted immediately
+before `IEND`; Google's C2PA (`caBX`), IPTC (`zTXt`), and XMP (`iTXt`)
+chunks are preserved byte-for-byte.
+
+To opt out:
+
+```bash
+nanobanana-adc -p "private prompt" --no-embed-metadata -o out.png
+```
+
+Note: AI Studio (`--api-key` / `GEMINI_API_KEY`) returns `image/jpeg`. In
+that case the output extension is auto-corrected to `.jpg` and metadata
+embedding is skipped (JPEG APP1/APP13 support is out of scope for v0.3.0).
 
 ## Authentication
 
@@ -138,12 +169,15 @@ Credentials are resolved in this order; the first match wins:
 ```bash
 npm install
 npm run build
+npm test
 node dist/cli.js --help
 # or, after `npm link`:
 nanobanana-adc --help
 ```
 
-Requires Node.js ≥ 18.
+End users require Node.js ≥ 18 (`engines.node`). **Development** requires
+Node.js ≥ 20 because the test runner uses `node --test --import tsx`, and
+the `--import` flag is stable on Node 20+.
 
 ## License
 

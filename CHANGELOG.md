@@ -3,6 +3,37 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-04-24
+
+### Added
+- PNG `tEXt` metadata embedding: generated PNGs now carry an Automatic1111 /
+  AIview compatible `tEXt` chunk with key `parameters`, containing the original
+  prompt and CLI options. Readable by `~/git/AIview`, `exiftool`, and any
+  A1111-aware viewer. Google's C2PA (`caBX`), IPTC (`zTXt`), and XMP (`iTXt`)
+  chunks are preserved byte-for-byte — the new chunk is inserted just before
+  `IEND`.
+- `--no-embed-metadata` opt-out flag for privacy-sensitive deployments where
+  prompt text should not be persisted to the image. Honored on both the ADC
+  and AI Studio paths.
+
+### Fixed
+- AI Studio (`--api-key` / `GEMINI_API_KEY`) path: when the response mime type
+  is `image/jpeg`, the output path extension is now auto-corrected
+  (`output.png` → `output.jpg`) and a warning is printed to stderr. Previously
+  the JPEG bytes were silently saved under `.png`, confusing viewers and
+  `file(1)`.
+
+### Notes
+- JPEG metadata embedding is out of scope for this release. The AI Studio
+  path returns JPEG, and since ADC/PNG is the differentiating axis of this
+  CLI, investing in a JPEG (APP1/APP13) metadata writer was deprioritized in
+  favor of shipping the ADC/PNG path robustly. Use the ADC path for
+  PNG + metadata.
+- `engines.node` remains `>=18` for end users; CRC32 is computed in-process
+  rather than via `zlib.crc32` (Node >=22.2) to preserve Node 18 / 20
+  compatibility. **Development** requires Node 20+ because the test runner
+  uses `node --test --import tsx`, and `--import` is stable on Node 20+.
+
 ## [0.2.0] - 2026-04-24
 
 After verifying against the Vertex AI REST spec, the `@google/genai` SDK's `ImageConfig` interface, and the `gemini-3-pro-image-preview` runtime, only `personGeneration` could be added with both auth paths in mind. Multiple-candidate generation, `seed`, output MIME type, and negative prompts were investigated but deferred (server-side rejection on `gemini-3-pro-image-preview`, missing fields in `ImageConfig`, or AI-Studio-side incompatibility).

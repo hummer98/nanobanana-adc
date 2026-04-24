@@ -1,7 +1,8 @@
 import { writeFile, mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, extname } from 'node:path';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { resolveAuth, type AuthResult } from './auth.js';
+import { insertTextChunkBeforeIend } from './png.js';
 
 type AdcAuth = Extract<AuthResult, { mode: 'adc' }>;
 type ApiKeyAuth = Extract<AuthResult, { mode: 'api-key' }>;
@@ -32,6 +33,7 @@ export interface GenerateOptions {
   output: string;
   apiKey?: string;
   personGeneration?: PersonGeneration;
+  embedMetadata: boolean;
 }
 
 export const ASPECT_MAP: Record<GenerateAspect, string> = {
@@ -71,33 +73,129 @@ export function assertPersonGeneration(
   }
 }
 
-async function writeImage(outputPath: string, base64Data: string): Promise<void> {
-  const buf = Buffer.from(base64Data, 'base64');
-  const dir = dirname(outputPath);
+export interface ParametersStringOptions {
+  prompt: string;
+  sizePx: number;
+  model: string;
+  aspect: GenerateAspect;
+  personGeneration?: PersonGeneration;
+}
+
+export function buildParametersString(opts: ParametersStringOptions): string {
+  const parts = [
+    'Steps: 1',
+    'Sampler: gemini',
+    `Size: ${opts.sizePx}x${opts.sizePx}`,
+    `Model: ${opts.model}`,
+    `Aspect: ${opts.aspect}`,
+  ];
+  if (opts.personGeneration) {
+    parts.push(`Person generation: ${opts.personGeneration}`);
+  }
+  return `${opts.prompt}\n${parts.join(', ')}`;
+}
+
+const EXT_FOR_MIME: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+};
+
+const ACCEPTED_EXTS_FOR_MIME: Record<string, Set<string>> = {
+  'image/png': new Set(['.png']),
+  'image/jpeg': new Set(['.jpg', '.jpeg']),
+};
+
+export function resolveOutputPath(
+  userPath: string,
+  mimeType: string,
+): { path: string; warning: string | null } {
+  const expected = EXT_FOR_MIME[mimeType] ?? '.bin';
+  const accepted =
+    ACCEPTED_EXTS_FOR_MIME[mimeType] ?? new Set<string>([expected]);
+  const currentExt = extname(userPath).toLowerCase();
+  if (currentExt && accepted.has(currentExt)) {
+    return { path: userPath, warning: null };
+  }
+  const base = currentExt ? userPath.slice(0, -currentExt.length) : userPath;
+  const newPath = base + expected;
+  const warning =
+    `[generate] warning: API returned ${mimeType}; ` +
+    `saving to ${newPath} instead of ${userPath}`;
+  return { path: newPath, warning };
+}
+
+export function resolveMimeType(
+  declared: string | undefined,
+  sample: Buffer,
+): string {
+  if (declared && declared.length > 0) {
+    return declared;
+  }
+  if (
+    sample.length >= 8 &&
+    sample[0] === 0x89 &&
+    sample[1] === 0x50 &&
+    sample[2] === 0x4e &&
+    sample[3] === 0x47 &&
+    sample[4] === 0x0d &&
+    sample[5] === 0x0a &&
+    sample[6] === 0x1a &&
+    sample[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  if (
+    sample.length >= 3 &&
+    sample[0] === 0xff &&
+    sample[1] === 0xd8 &&
+    sample[2] === 0xff
+  ) {
+    return 'image/jpeg';
+  }
+  return 'application/octet-stream';
+}
+
+export async function writeImage(
+  desiredOutputPath: string,
+  imageBytes: Buffer,
+  mimeType: string,
+  metadataPayload: string | null,
+): Promise<{ actualPath: string }> {
+  const dir = dirname(desiredOutputPath);
   if (dir && dir !== '.') {
     try {
       await mkdir(dir, { recursive: true });
     } catch (err) {
       throw new Error(
-        `[generate] failed to write ${outputPath}: ${(err as Error).message}`,
+        `[generate] failed to write ${desiredOutputPath}: ${(err as Error).message}`,
         { cause: err },
       );
     }
   }
+  const payloadToWrite =
+    metadataPayload !== null && mimeType === 'image/png'
+      ? insertTextChunkBeforeIend(imageBytes, 'parameters', metadataPayload)
+      : imageBytes;
   try {
-    await writeFile(outputPath, buf);
+    await writeFile(desiredOutputPath, payloadToWrite);
   } catch (err) {
     throw new Error(
-      `[generate] failed to write ${outputPath}: ${(err as Error).message}`,
+      `[generate] failed to write ${desiredOutputPath}: ${(err as Error).message}`,
       { cause: err },
     );
   }
+  return { actualPath: desiredOutputPath };
+}
+
+interface GeneratedImage {
+  base64: string;
+  mimeType: string | undefined;
 }
 
 async function generateViaVertexFetch(
   auth: AdcAuth,
   options: GenerateOptions,
-): Promise<string> {
+): Promise<GeneratedImage> {
   const { accessToken, project, location } = auth;
 
   const host =
@@ -151,7 +249,9 @@ async function generateViaVertexFetch(
 
   const json = (await res.json()) as {
     candidates?: Array<{
-      content?: { parts?: Array<{ inlineData?: { data?: string } }> };
+      content?: {
+        parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }>;
+      };
     }>;
   };
 
@@ -159,7 +259,7 @@ async function generateViaVertexFetch(
   for (const p of parts) {
     const data = p.inlineData?.data;
     if (typeof data === 'string' && data.length > 0) {
-      return data;
+      return { base64: data, mimeType: p.inlineData?.mimeType };
     }
   }
   throw new Error('[generate] response contained no image data');
@@ -168,7 +268,7 @@ async function generateViaVertexFetch(
 async function generateViaSdk(
   auth: ApiKeyAuth,
   options: GenerateOptions,
-): Promise<string> {
+): Promise<GeneratedImage> {
   const client = new GoogleGenerativeAI(auth.apiKey);
 
   const model = client.getGenerativeModel({
@@ -198,7 +298,7 @@ async function generateViaSdk(
   const parts = result.response.candidates?.[0]?.content?.parts ?? [];
   for (const p of parts) {
     if ('inlineData' in p && p.inlineData?.data) {
-      return p.inlineData.data;
+      return { base64: p.inlineData.data, mimeType: p.inlineData.mimeType };
     }
   }
   throw new Error('[generate] response contained no image data');
@@ -209,15 +309,52 @@ export async function generate(options: GenerateOptions): Promise<void> {
 
   const auth = await resolveAuth(options.apiKey);
 
-  const base64Image =
+  const { base64, mimeType: declaredMime } =
     auth.mode === 'adc'
       ? await generateViaVertexFetch(auth, options)
       : await generateViaSdk(auth, options);
 
-  await writeImage(options.output, base64Image);
+  const imageBytes = Buffer.from(base64, 'base64');
+  const mimeType = resolveMimeType(declaredMime, imageBytes);
+
+  const { path: actualOutputPath, warning: pathWarning } = resolveOutputPath(
+    options.output,
+    mimeType,
+  );
+  if (pathWarning) {
+    process.stderr.write(`${pathWarning}\n`);
+  }
+
+  const payload = options.embedMetadata
+    ? buildParametersString({
+        prompt: options.prompt,
+        sizePx: SIZE_PX[options.size],
+        model: options.model,
+        aspect: options.aspect,
+        ...(options.personGeneration
+          ? { personGeneration: options.personGeneration }
+          : {}),
+      })
+    : null;
+
+  const payloadForWrite = mimeType === 'image/png' ? payload : null;
+
+  if (options.embedMetadata && mimeType !== 'image/png') {
+    process.stderr.write(
+      '[generate] warning: metadata embedding skipped for non-PNG output ' +
+        `(mime=${mimeType}); use the ADC path for PNG + metadata\n`,
+    );
+  }
+
+  const { actualPath } = await writeImage(
+    actualOutputPath,
+    imageBytes,
+    mimeType,
+    payloadForWrite,
+  );
 
   const elapsed = Date.now() - startedAt;
   console.log(
-    `[generate] done | output=${options.output} | model=${options.model} | elapsed_ms=${elapsed}`,
+    `[generate] done | output=${actualPath} | model=${options.model} | elapsed_ms=${elapsed}`,
   );
 }

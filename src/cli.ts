@@ -15,7 +15,7 @@ const program = new Command();
 program
   .name('nanobanana-adc')
   .description('Gemini 3 Pro Image CLI with ADC support')
-  .version('0.2.0')
+  .version('0.3.0')
   .requiredOption('-p, --prompt <text>', 'prompt text (required)')
   .option('-o, --output <path>', 'output file path', 'output.png')
   .option(
@@ -42,6 +42,10 @@ program
         }
         return upper;
       }),
+  )
+  .option(
+    '--no-embed-metadata',
+    'do not embed AIview-compatible parameters metadata (PNG only; default: embed)',
   );
 
 async function main(): Promise<void> {
@@ -55,6 +59,7 @@ async function main(): Promise<void> {
     model: string;
     apiKey?: string;
     personGeneration?: string;
+    embedMetadata: boolean;
   }>();
 
   assertAspect(opts.aspect);
@@ -66,6 +71,7 @@ async function main(): Promise<void> {
     size: opts.size as GenerateSize,
     model: opts.model,
     apiKey: opts.apiKey,
+    embedMetadata: opts.embedMetadata,
   };
 
   if (opts.personGeneration) {

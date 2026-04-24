@@ -1,6 +1,6 @@
 {
   "name": "nanobanana-adc",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Gemini 3 Pro Image (Nano Banana Pro) CLI with Application Default Credentials (ADC) support for Vertex AI. Works in enterprise / CI / Cloud Run environments where GEMINI_API_KEY is not available.",
   "author": {
     "name": "hummer98",

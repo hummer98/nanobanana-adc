@@ -16,6 +16,9 @@ Gemini 画像生成向けの既存 Claude Code skill（cc-nano-banana、ccskill-
 - `GEMINI_API_KEY` フォールバック（軽量セットアップ向け）。
 - 10 種類のアスペクト比: 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 21:9, 9:21, 5:4。
 - 3 種類の解像度: 1K, 2K, 4K。
+- AIview / Automatic1111 互換の `tEXt parameters` を生成 PNG に埋め込み
+  （`--no-embed-metadata` で無効化）。Google の C2PA / SynthID provenance
+  チャンクは保持されます。
 - 同一リポジトリから npm バイナリと Claude Code plugin の両方を配布。
 - TypeScript、strict モード、Node.js ≥ 18。
 
@@ -83,8 +86,37 @@ nanobanana-adc -p "にぎやかな広場" --person-generation ALLOW_ADULT
 | `--model` | `-m` | `gemini-3-pro-image-preview` | モデル ID。 |
 | `--api-key` | — | — | 明示的に渡す Gemini API キー（環境変数・ADC より優先）。 |
 | `--person-generation` | — | — | 人物生成の制御。`ALLOW_ALL` / `ALLOW_ADULT` / `ALLOW_NONE` のいずれか（大文字小文字を問わず受け付け）。未指定時はモデル既定。 |
+| `--no-embed-metadata` | — | 埋め込む | PNG への AIview 互換 `tEXt parameters` チャンクの埋め込みを無効化。JPEG 出力では元々埋め込みません（本リリースでは JPEG への埋め込みは対象外）。 |
 
 > `--person-generation` についての注記: 現状は Vertex AI (ADC) 経路でのみ受理されます。`--api-key` / `GEMINI_API_KEY` 経路で利用される AI Studio v1beta エンドポイントは、`gemini-3-pro-image-preview` においてまだこのフィールドを認識せず `400 Unknown name "personGeneration"` を返します。また、AI Studio の一部 API キー Tier では `ALLOW_ALL` が 400 エラーで弾かれるとの報告もあります（Gemini API 経路での再現は未確認）。いずれの場合も、フラグを省略するか ADC 経路に切り替えてください。
+
+## メタデータ
+
+既定では、生成された PNG ファイルには Automatic1111 / AIview 互換の
+`tEXt` チャンク（キーワード `parameters`）が埋め込まれます。本体は 2 行
+の文字列で、1 行目がプロンプト、2 行目が CLI オプションのカンマ区切り
+リストです:
+
+```
+<プロンプト>
+Steps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image-preview, Aspect: 1:1[, Person generation: ALLOW_ADULT]
+```
+
+`Steps: 1, Sampler: gemini` は AIview の `parsePrompt`（`Steps:` で分割）
+が期待するプレースホルダです。チャンクは `IEND` の直前に挿入され、
+Google の C2PA（`caBX`）、IPTC（`zTXt`）、XMP（`iTXt`）チャンクは
+バイト単位で保持されます。
+
+無効化するには:
+
+```bash
+nanobanana-adc -p "private prompt" --no-embed-metadata -o out.png
+```
+
+注意: AI Studio（`--api-key` / `GEMINI_API_KEY`）経路は `image/jpeg` を
+返します。その場合、出力拡張子は自動で `.jpg` に補正され、メタデータの
+埋め込みはスキップされます（JPEG の APP1/APP13 対応は v0.3.0 では
+スコープ外）。
 
 ## 認証
 
@@ -138,12 +170,16 @@ nanobanana-adc --prompt "a cat in space" --api-key "$GEMINI_API_KEY"
 ```bash
 npm install
 npm run build
+npm test
 node dist/cli.js --help
 # もしくは `npm link` 後:
 nanobanana-adc --help
 ```
 
-Node.js ≥ 18 が必要です。
+エンドユーザーは Node.js ≥ 18 が必要です（`engines.node`）。
+**開発時は Node.js ≥ 20 が必要**です。テストランナーが
+`node --test --import tsx` を使用し、`--import` フラグは Node 20+ で
+安定しているためです。
 
 ## ライセンス
 
