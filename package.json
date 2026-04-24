@@ -20,11 +20,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yamamoto/nanobanana-adc.git"
+    "url": "git+https://github.com/hummer98/nanobanana-adc.git"
   },
-  "homepage": "https://github.com/yamamoto/nanobanana-adc#readme",
+  "homepage": "https://github.com/hummer98/nanobanana-adc#readme",
   "bugs": {
-    "url": "https://github.com/yamamoto/nanobanana-adc/issues"
+    "url": "https://github.com/hummer98/nanobanana-adc/issues"
   },
   "private": false,
   "type": "module",
@@ -34,8 +34,8 @@
   "files": [
     "dist/",
     "bin/",
-    "SKILL.md",
-    "settings.json",
+    "skills/",
+    ".claude-plugin/",
     "README.md",
     "README.ja.md",
     "LICENSE"

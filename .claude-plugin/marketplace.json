@@ -1,0 +1,28 @@
+{
+  "name": "hummer98-nanobanana-adc",
+  "owner": {
+    "name": "hummer98",
+    "email": "github@hummer98"
+  },
+  "plugins": [
+    {
+      "name": "nanobanana-adc",
+      "source": "./",
+      "description": "Gemini 3 Pro Image (Nano Banana Pro) CLI with ADC support for Vertex AI",
+      "version": "0.1.0",
+      "author": {
+        "name": "hummer98"
+      },
+      "repository": "https://github.com/hummer98/nanobanana-adc",
+      "license": "MIT",
+      "keywords": [
+        "gemini",
+        "nano-banana-pro",
+        "vertex-ai",
+        "adc",
+        "image-generation",
+        "claude-code-plugin"
+      ]
+    }
+  ]
+}

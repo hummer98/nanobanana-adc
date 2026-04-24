@@ -24,7 +24,7 @@ Gemini 画像生成向けの既存 Claude Code skill（cc-nano-banana、ccskill-
 ### Claude Code plugin として
 
 ```bash
-/plugin marketplace add yamamoto/nanobanana-adc
+/plugin marketplace add hummer98/nanobanana-adc
 ```
 
 plugin の `SessionStart` hook が初回起動時に `npm install --omit=dev` を実行し、ランタイム依存を `${CLAUDE_PLUGIN_DATA}` にインストールします。追加セットアップは不要です。

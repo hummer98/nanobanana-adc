@@ -24,7 +24,7 @@ Most existing Claude Code skills for Gemini image generation (cc-nano-banana, cc
 ### As a Claude Code plugin
 
 ```bash
-/plugin marketplace add yamamoto/nanobanana-adc
+/plugin marketplace add hummer98/nanobanana-adc
 ```
 
 The plugin's `SessionStart` hook installs runtime dependencies into `${CLAUDE_PLUGIN_DATA}` by running `npm install --omit=dev` on first use, so no extra setup is required.
