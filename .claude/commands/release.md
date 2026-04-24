@@ -57,6 +57,29 @@ nanobanana-adc のリリース作業を Conductor 自身が直接実行する。
 
 ## 手順
 
+### 0. プラグインマニフェスト検証（preflight）
+
+`.claude-plugin/plugin.json` と `.claude-plugin/marketplace.json` の整合性・スキーマ準拠・ファイル存在を確認する。CI の `validate-plugin` ジョブでも同じチェックが走るが、手元で先に潰したほうが速い:
+
+```
+cd "$PROJECT_ROOT"
+
+# claude plugin validate: スキーマ・整合性チェック
+claude plugin validate . || { echo "plugin validate failed; aborting" >&2; exit 1; }
+
+# version 三者 (+ src/cli.ts) が揃っているか確認。揃っていなければこの後のバンプ時に同時更新する
+PKG=$(node -p "require('./package.json').version")
+PLUGIN=$(node -p "require('./.claude-plugin/plugin.json').version")
+MARKET=$(node -p "require('./.claude-plugin/marketplace.json').plugins.find(p => p.name === 'nanobanana-adc').version")
+CLI=$(grep -oE "\.version\('([^']+)'\)" src/cli.ts | sed -E "s/.*'([^']+)'.*/\1/")
+echo "versions — package=$PKG plugin=$PLUGIN marketplace=$MARKET cli=$CLI"
+if [ "$PKG" != "$PLUGIN" ] || [ "$PKG" != "$MARKET" ] || [ "$PKG" != "$CLI" ]; then
+  echo "WARNING: version fields are out of sync. The version bump step below must update all four." >&2
+fi
+```
+
+失敗時は aborting。manifest 側の構造的な問題なのでコードを直してから再実行する。
+
 ### 1. 現在のバージョンとコミット履歴を取得
 
 nanobanana-adc は npm パッケージなのでバージョンは `package.json` から取得する（`.claude-plugin/plugin.json` ではない）。

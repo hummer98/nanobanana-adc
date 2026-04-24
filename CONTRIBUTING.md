@@ -73,32 +73,38 @@ Run from a Master session (Claude Code) inside this repo:
 
 `/release` creates a `--exclusive` task that a Conductor drains and executes:
 
+0. **Preflight** — `claude plugin validate .` + version consistency check across
+   `package.json` / `.claude-plugin/plugin.json` / `.claude-plugin/marketplace.json`
+   / `src/cli.ts`. CI runs the same thing in the `validate-plugin` job; doing it
+   locally first keeps the feedback loop short.
 1. Bump `package.json` + `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` + `src/cli.ts`.
 2. Prepend a new section to `CHANGELOG.md`.
 3. `git commit` + `git tag v<X.Y.Z>` + `git push origin main v<X.Y.Z>`.
-4. GitHub Actions `release.yml` then publishes to npm (OIDC provenance) and
+4. GitHub Actions `release.yml` publishes to npm (OIDC provenance) and
    creates the GitHub Release from the matching CHANGELOG section.
-5. Refresh the local Claude Code plugin cache so the new version becomes
-   visible on this machine:
-   ```bash
-   claude plugin marketplace update hummer98-nanobanana-adc
-   claude plugin update nanobanana-adc@hummer98-nanobanana-adc
-   # Restart Claude Code to reload plugin.json / SessionStart hooks.
-   ```
+5. Conductor refreshes the local plugin cache automatically
+   (`claude plugin marketplace update hummer98-nanobanana-adc` +
+   `claude plugin update nanobanana-adc@hummer98-nanobanana-adc`). Newly
+   opened Claude Code sessions pick up the new version automatically. For
+   an already-running session that wants the new `plugin.json` /
+   `SessionStart` hooks immediately, run `/reload-plugins` (built-in slash
+   command) inside that session.
 6. (Optional) Bump the globally installed CLI:
    ```bash
    npm install -g nanobanana-adc@<X.Y.Z>
    ```
 
 Trusted Publisher at npmjs.com must be configured for `nanobanana-adc` before
-the first CI-driven release; otherwise the publish step 401s. Step 5 is not
-optional — without it, `claude plugin list` will keep showing the previous
-version even though the package is published, which looks like the release
-didn't happen.
+the first CI-driven release; otherwise the publish step 401s.
 
 ## CI
 
-- **`.github/workflows/ci.yml`** — push / PR to `main`. Runs typecheck + build
-  + bin smoke test on Node 20 / 22 / 24.
+- **`.github/workflows/ci.yml`** — push / PR to `main`.
+  - `build` (Node 20 / 22 / 24 matrix): `npm ci` + `npm audit` +
+    `npm audit signatures` + typecheck + build + bin smoke test.
+  - `validate-plugin`: asserts `.claude-plugin/*.json` + `skills/.../SKILL.md`
+    exist, checks the version fields are in sync across `package.json`,
+    `plugin.json`, `marketplace.json`, and `src/cli.ts`, validates the SKILL.md
+    frontmatter, and runs `claude plugin validate .`.
 - **`.github/workflows/release.yml`** — `v*` tag push. Publishes to npm with
   `--provenance --access public` and creates a GitHub Release.

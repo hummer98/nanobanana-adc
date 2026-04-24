@@ -1,5 +1,8 @@
 {
   "name": "hummer98-nanobanana-adc",
+  "metadata": {
+    "description": "Gemini 3 Pro Image (Nano Banana Pro) CLI with Application Default Credentials (ADC) support for Vertex AI, distributed as a Claude Code plugin."
+  },
   "owner": {
     "name": "hummer98",
     "email": "github@hummer98"
