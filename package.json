@@ -47,7 +47,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "0.24.1",
-    "commander": "12.1.0",
+    "commander": "14.0.3",
     "google-auth-library": "10.6.2"
   },
   "devDependencies": {
