@@ -22,6 +22,12 @@ jobs:
 
       - run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Verify package signatures
+        run: npm audit signatures
+
       - name: Typecheck
         run: npm run typecheck
 

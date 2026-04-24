@@ -23,6 +23,15 @@ jobs:
 
       - run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Verify package signatures
+        run: npm audit signatures
+
+      - name: Build
+        run: npm run build
+
       - name: Publish to npm (OIDC Trusted Publishing)
         run: |
           # setup-node writes a _authToken placeholder; drop it so npm uses OIDC.
