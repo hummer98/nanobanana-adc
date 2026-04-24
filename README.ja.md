@@ -118,6 +118,83 @@ nanobanana-adc -p "private prompt" --no-embed-metadata -o out.png
 埋め込みはスキップされます（JPEG の APP1/APP13 対応は v0.3.0 では
 スコープ外）。
 
+## 診断（doctor）
+
+`nanobanana-adc doctor` で、どの認証経路が選ばれるか・GCP 環境変数が揃って
+いるか・ADC トークンが実際に取得できるかを 1 コマンドで確認できます。
+モデル API は一切呼ばず、課金は発生しません。
+
+```text
+$ nanobanana-adc doctor
+nanobanana-adc doctor
+
+CLI
+  path:                           /usr/local/lib/node_modules/nanobanana-adc/dist/cli.js
+  version:                        0.4.0
+  install:                        npm-global
+
+Auth route
+  selected:                       adc   (GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION set; ADC path)
+
+API key
+  present:                        no
+
+ADC
+  probed:                         yes
+  status:                         ok
+  account:                        user@example.com
+  project:                        my-gcp-proj
+
+GCP env
+  GOOGLE_CLOUD_PROJECT:             my-gcp-proj
+  GOOGLE_CLOUD_LOCATION:            global
+  GOOGLE_GENAI_USE_VERTEXAI:        true
+  GOOGLE_APPLICATION_CREDENTIALS:   (unset)
+
+Model
+  default:                        gemini-3-pro-image-preview
+  note:                           requires GOOGLE_CLOUD_LOCATION=global on the ADC path
+
+Warnings (0)
+  (none)
+```
+
+主な使い方:
+
+```bash
+# 機械可読 JSON（schema は `nanobanana-adc-doctor/v1` で安定）
+nanobanana-adc doctor --json | jq .
+
+# fatal でないことを gate にする:
+nanobanana-adc doctor --json | jq -e '.fatal | not' >/dev/null && echo "ready"
+
+# ADC トークンの先頭・gcloud 設定・ランタイム情報を追加出力:
+nanobanana-adc doctor --verbose
+```
+
+`doctor` は **常に exit code 0** を返します（`fatal: true` でも 0）。これは
+診断ツールという設計哲学で、ゲートとして使う場合は `--json | jq` を経由して
+ください。詳細は [CHANGELOG.md](./CHANGELOG.md) の v0.4.0 参照。
+
+### Warning コード対訳
+
+Warning の `code` は JSON schema 互換性維持のため英語のまま固定です。
+日本語訳は参考情報として以下を併記します:
+
+| code | 日本語訳 |
+|------|----------|
+| `NO_AUTH_AVAILABLE` | 認証経路が 1 つも使えない（fatal） |
+| `GEMINI_API_KEY_SHADOWS_ADC` | `GEMINI_API_KEY` が設定されているので ADC 経路は選ばれません |
+| `LOCATION_NOT_GLOBAL` | `GOOGLE_CLOUD_LOCATION` が `global` ではありません |
+| `LOCATION_MISSING` | ADC 経路を試そうとしているが `GOOGLE_CLOUD_LOCATION` が未設定 |
+| `CREDS_FILE_MISSING` | `GOOGLE_APPLICATION_CREDENTIALS` のパスにファイルが存在しません |
+| `USE_VERTEXAI_NOT_TRUE` | `GOOGLE_GENAI_USE_VERTEXAI` が `true` ではありません |
+| `API_KEY_FORMAT_SUSPECT` | `GEMINI_API_KEY` が `AIza` で始まっていません |
+
+> **注意**: `--verbose` 出力には個人のメールアドレス（`gcloud config
+> get-value account`）やローカルパスが含まれることがあります。Issue・CI
+> ログ・デモ録画への貼り付けは内容確認の上で行ってください。
+
 ## 認証
 
 ### 方式 A — Application Default Credentials（推奨）

@@ -9,13 +9,23 @@ import {
   type GenerateOptions,
   type GenerateSize,
 } from './generate.js';
+import {
+  buildDoctorReport,
+  renderDoctorJSON,
+  renderDoctorText,
+  type DoctorEnv,
+} from './doctor.js';
 
-const program = new Command();
+const CLI_VERSION = '0.4.0';
 
-program
+const program = new Command()
   .name('nanobanana-adc')
   .description('Gemini 3 Pro Image CLI with ADC support')
-  .version('0.3.0')
+  .version('0.4.0');
+
+program
+  .command('generate', { isDefault: true })
+  .description('Generate an image (default subcommand)')
   .requiredOption('-p, --prompt <text>', 'prompt text (required)')
   .option('-o, --output <path>', 'output file path', 'output.png')
   .option(
@@ -46,12 +56,8 @@ program
   .option(
     '--no-embed-metadata',
     'do not embed AIview-compatible parameters metadata (PNG only; default: embed)',
-  );
-
-async function main(): Promise<void> {
-  program.parse(process.argv);
-
-  const opts = program.opts<{
+  )
+  .action(async (opts: {
     prompt: string;
     output: string;
     aspect: string;
@@ -60,29 +66,48 @@ async function main(): Promise<void> {
     apiKey?: string;
     personGeneration?: string;
     embedMetadata: boolean;
-  }>();
+  }) => {
+    assertAspect(opts.aspect);
 
-  assertAspect(opts.aspect);
+    const generateOptions: GenerateOptions = {
+      prompt: opts.prompt,
+      output: opts.output,
+      aspect: opts.aspect,
+      size: opts.size as GenerateSize,
+      model: opts.model,
+      apiKey: opts.apiKey,
+      embedMetadata: opts.embedMetadata,
+    };
 
-  const generateOptions: GenerateOptions = {
-    prompt: opts.prompt,
-    output: opts.output,
-    aspect: opts.aspect,
-    size: opts.size as GenerateSize,
-    model: opts.model,
-    apiKey: opts.apiKey,
-    embedMetadata: opts.embedMetadata,
-  };
+    if (opts.personGeneration) {
+      assertPersonGeneration(opts.personGeneration);
+      generateOptions.personGeneration = opts.personGeneration;
+    }
 
-  if (opts.personGeneration) {
-    assertPersonGeneration(opts.personGeneration);
-    generateOptions.personGeneration = opts.personGeneration;
-  }
+    await generate(generateOptions);
+  });
 
-  await generate(generateOptions);
-}
+program
+  .command('doctor')
+  .description('Diagnose auth / env state (always exit 0; see --json for scripting)')
+  .option('--json', 'emit machine-readable JSON')
+  .option('-v, --verbose', 'include debug fields (ACCESS_TOKEN prefix 8 chars, gcloud raw, runtime)')
+  .action(async (opts: { json?: boolean; verbose?: boolean }) => {
+    // doctor の --api-key は受け取らない。将来拡張点として resolveAuthRoute は
+    // apiKeyFlag を受け付けるが、現時点では常に undefined を渡す。
+    const env = process.env as DoctorEnv;
+    const report = await buildDoctorReport(env, {
+      verbose: !!opts.verbose,
+      argv1: process.argv[1] ?? '',
+      version: CLI_VERSION,
+    });
+    const out = opts.json
+      ? renderDoctorJSON(report) + '\n'
+      : renderDoctorText(report);
+    process.stdout.write(out);
+  });
 
-main().catch((err: unknown) => {
+program.parseAsync(process.argv).catch((err: unknown) => {
   const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
   process.stderr.write(`${msg}\n`);
   process.exit(1);

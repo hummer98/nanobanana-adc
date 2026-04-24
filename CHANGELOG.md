@@ -3,6 +3,57 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-04-25
+
+### Added
+- `nanobanana-adc doctor` subcommand: diagnose the active auth route, GCP
+  environment variables, ADC reachability, and known foot-guns
+  (`GOOGLE_CLOUD_LOCATION=global` required, `GOOGLE_GENAI_USE_VERTEXAI=true`,
+  `GOOGLE_APPLICATION_CREDENTIALS` file existence, API key format) in one
+  command. Masks secrets by default: `GEMINI_API_KEY` is shown as prefix 6 +
+  length only, the ADC access token is not emitted, and
+  `GOOGLE_APPLICATION_CREDENTIALS` is reported as a path only (the JSON is
+  never opened).
+- `nanobanana-adc doctor --json` emits a machine-readable report with the
+  `nanobanana-adc-doctor/v1` schema for pipelines and CI. Shell users who
+  want to gate on fatal state can use `doctor --json | jq -e '.fatal | not'`.
+- `nanobanana-adc doctor --verbose` / `-v` surfaces the ADC token prefix
+  (first 8 characters), `gcloud config get-value account/project`, the
+  `application_default_credentials.json` path, Node.js version, and platform.
+  Intended for local debugging only — not for CI transcripts or demo
+  recordings, since `gcloudAccount` may contain a personal email.
+- CLI is now a proper subcommand tree. `nanobanana-adc --help` shows
+  `generate` and `doctor`. The previous invocation
+  `nanobanana-adc --prompt ...` still works (`generate` is the default
+  subcommand), so existing scripts and the Claude Code skill are
+  backward-compatible.
+
+### Changed
+- `src/cli.ts` is now structured around `program.command('generate', { isDefault: true })`
+  + `program.command('doctor')`. The image-generation logic in `src/generate.ts`
+  and the auth logic in `src/auth.ts` are untouched.
+
+### Notes
+- `doctor` is always exit code `0` — even when `fatal: true` in the report —
+  because the tool is diagnostic, not a gate. Shell users who want a hard
+  failure can do `doctor --json | jq -e '.fatal | not' >/dev/null` or similar.
+  This mirrors `brew doctor` and `gcloud info`, which exit 0 regardless of
+  findings. Only an unexpected internal crash (module load failure, etc.)
+  returns exit 1 from the Node process.
+- `doctor --verbose` is designed for local debugging. It can include personal
+  email addresses (`gcloud config get-value account`) and local file paths.
+  Do not paste verbose output into issues, CI logs, or demo recordings
+  without review.
+- `doctor` does **not** call the model — it never issues a billable request.
+  ADC is probed only via `google-auth-library` for an access token; no image
+  generation happens. A 5s `setTimeout().unref()` timeout prevents the
+  command from hanging when ADC is unreachable (e.g., metadata server DNS
+  wait on non-GCE networks).
+- `CLI_VERSION_STALE` (`npm view nanobanana-adc version` vs the local build)
+  is deferred to v0.5.0 or later. v0.4.0 intentionally avoids network calls
+  to the npm registry to keep `doctor` fast, offline-friendly, and free of
+  corporate-proxy interactions.
+
 ## [0.3.0] - 2026-04-24
 
 ### Added

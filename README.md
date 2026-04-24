@@ -117,6 +117,69 @@ Note: AI Studio (`--api-key` / `GEMINI_API_KEY`) returns `image/jpeg`. In
 that case the output extension is auto-corrected to `.jpg` and metadata
 embedding is skipped (JPEG APP1/APP13 support is out of scope for v0.3.0).
 
+## Diagnostics (doctor)
+
+Run `nanobanana-adc doctor` to confirm which auth route will fire, whether the
+GCP environment variables are coherent, and whether the ADC token can actually
+be fetched — all without calling the model (no billable request is made).
+
+```text
+$ nanobanana-adc doctor
+nanobanana-adc doctor
+
+CLI
+  path:                           /usr/local/lib/node_modules/nanobanana-adc/dist/cli.js
+  version:                        0.4.0
+  install:                        npm-global
+
+Auth route
+  selected:                       adc   (GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION set; ADC path)
+
+API key
+  present:                        no
+
+ADC
+  probed:                         yes
+  status:                         ok
+  account:                        user@example.com
+  project:                        my-gcp-proj
+
+GCP env
+  GOOGLE_CLOUD_PROJECT:             my-gcp-proj
+  GOOGLE_CLOUD_LOCATION:            global
+  GOOGLE_GENAI_USE_VERTEXAI:        true
+  GOOGLE_APPLICATION_CREDENTIALS:   (unset)
+
+Model
+  default:                        gemini-3-pro-image-preview
+  note:                           requires GOOGLE_CLOUD_LOCATION=global on the ADC path
+
+Warnings (0)
+  (none)
+```
+
+Common flags:
+
+```bash
+# Machine-readable JSON — stable schema `nanobanana-adc-doctor/v1`
+nanobanana-adc doctor --json | jq .
+
+# Gate a script on no-fatal-state:
+nanobanana-adc doctor --json | jq -e '.fatal | not' >/dev/null && echo "ready"
+
+# Include ADC token prefix, gcloud config, and runtime details:
+nanobanana-adc doctor --verbose
+```
+
+`doctor` always exits `0` — even when it reports `fatal: true` — because it is
+a diagnostic command, not a gate. Use `--json` + `jq` to drive CI. See
+[CHANGELOG.md](./CHANGELOG.md) v0.4.0 for the full rationale.
+
+> **Note**: `--verbose` can include personal email addresses (from
+> `gcloud config get-value account`) and local file paths. Avoid pasting
+> verbose output into issues, CI transcripts, or demo recordings without
+> review.
+
 ## Authentication
 
 ### Option A — Application Default Credentials (recommended)

@@ -45,9 +45,10 @@ Do not reorder. Users who set `GEMINI_API_KEY` in their shell but pass
 
 | ファイル | 責務 | 触ってよい範囲 |
 |---------|------|---------------|
-| `src/cli.ts` | commander で引数を解析し `generate()` を呼ぶ | オプション追加・help 改善 |
+| `src/cli.ts` | commander で引数を解析し `generate()` / `doctor` を呼ぶ | サブコマンド追加・オプション追加・help 改善 |
 | `src/auth.ts` | 認証モード解決、access token 取得、エラー時 exit | 認証ロジックの拡張はここに集約 |
 | `src/generate.ts` | Vertex AI fetch / AI Studio SDK 呼び分け、画像保存 | URL / body / response 解析 |
+| `src/doctor.ts` | 環境・認証状態の診断（env 読取 / ADC probe / warning 計算 / JSON+text renderer）。モデル API は呼ばない | 診断項目・warning 追加、JSON schema は `nanobanana-adc-doctor/v1` として互換維持 |
 | `bin/nanobanana-adc` | shebang dispatcher | 変更不要 (dist/cli.js を呼ぶだけ) |
 | `.claude-plugin/plugin.json` | Plugin manifest + SessionStart hooks | プラグイン挙動の変更 |
 | `skills/nanobanana-adc/SKILL.md` | Claude Code が読む skill 定義 | trigger / usage 文言 |
