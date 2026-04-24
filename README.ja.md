@@ -67,6 +67,9 @@ nanobanana-adc -p "retro poster art" --model gemini-3-pro-image-preview
 
 # 5. API キーでのフォールバック
 nanobanana-adc -p "a cat in space" --api-key "$GEMINI_API_KEY"
+
+# 6. 人物生成の制御
+nanobanana-adc -p "にぎやかな広場" --person-generation ALLOW_ADULT
 ```
 
 ### オプション一覧
@@ -79,6 +82,9 @@ nanobanana-adc -p "a cat in space" --api-key "$GEMINI_API_KEY"
 | `--size` | `-s` | `1K` | 画像サイズ。1K, 2K, 4K のいずれか。 |
 | `--model` | `-m` | `gemini-3-pro-image-preview` | モデル ID。 |
 | `--api-key` | — | — | 明示的に渡す Gemini API キー（環境変数・ADC より優先）。 |
+| `--person-generation` | — | — | 人物生成の制御。`ALLOW_ALL` / `ALLOW_ADULT` / `ALLOW_NONE` のいずれか（大文字小文字を問わず受け付け）。未指定時はモデル既定。 |
+
+> `--person-generation` についての注記: 現状は Vertex AI (ADC) 経路でのみ受理されます。`--api-key` / `GEMINI_API_KEY` 経路で利用される AI Studio v1beta エンドポイントは、`gemini-3-pro-image-preview` においてまだこのフィールドを認識せず `400 Unknown name "personGeneration"` を返します。また、AI Studio の一部 API キー Tier では `ALLOW_ALL` が 400 エラーで弾かれるとの報告もあります（Gemini API 経路での再現は未確認）。いずれの場合も、フラグを省略するか ADC 経路に切り替えてください。
 
 ## 認証
 

@@ -67,6 +67,9 @@ nanobanana-adc -p "retro poster art" --model gemini-3-pro-image-preview
 
 # 5. API-key fallback
 nanobanana-adc -p "a cat in space" --api-key "$GEMINI_API_KEY"
+
+# 6. Restrict person generation
+nanobanana-adc -p "a bustling plaza" --person-generation ALLOW_ADULT
 ```
 
 ### Options
@@ -79,6 +82,9 @@ nanobanana-adc -p "a cat in space" --api-key "$GEMINI_API_KEY"
 | `--size` | `-s` | `1K` | Image size. One of 1K, 2K, 4K. |
 | `--model` | `-m` | `gemini-3-pro-image-preview` | Model ID. |
 | `--api-key` | — | — | Explicit Gemini API key (overrides env and ADC). |
+| `--person-generation` | — | — | Control person generation. One of `ALLOW_ALL`, `ALLOW_ADULT`, `ALLOW_NONE` (case-insensitive). Omit to use the model default. |
+
+> Note on `--person-generation`: currently accepted on the Vertex AI (ADC) path. The AI Studio v1beta endpoint used by the `--api-key` / `GEMINI_API_KEY` path does not yet recognize this field for `gemini-3-pro-image-preview` and returns `400 Unknown name "personGeneration"`. There are also reports that some AI Studio API-key tiers may reject `ALLOW_ALL` with a 400 error (not yet confirmed for the Gemini API path). If you hit either, fall back to omitting the flag or use the ADC path.
 
 ## Authentication
 

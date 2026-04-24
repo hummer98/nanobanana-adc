@@ -3,6 +3,13 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-04-24
+
+After verifying against the Vertex AI REST spec, the `@google/genai` SDK's `ImageConfig` interface, and the `gemini-3-pro-image-preview` runtime, only `personGeneration` could be added with both auth paths in mind. Multiple-candidate generation, `seed`, output MIME type, and negative prompts were investigated but deferred (server-side rejection on `gemini-3-pro-image-preview`, missing fields in `ImageConfig`, or AI-Studio-side incompatibility).
+
+### Added
+- `--person-generation <mode>` CLI option (`ALLOW_ALL` / `ALLOW_ADULT` / `ALLOW_NONE`, case-insensitive on input) mapped to `generationConfig.imageConfig.personGeneration`. Omit to use the model default. Currently accepted on the Vertex AI (ADC) path; the AI Studio v1beta endpoint used by `--api-key` returns `400 Unknown name "personGeneration"` for `gemini-3-pro-image-preview` at the time of this release.
+
 ## [0.1.1] - 2026-04-24
 
 ### Changed
