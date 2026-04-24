@@ -46,9 +46,9 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
+    "@google/generative-ai": "^0.24.1",
     "commander": "^12.1.0",
-    "google-auth-library": "^9.14.0"
+    "google-auth-library": "^10.6.2"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
