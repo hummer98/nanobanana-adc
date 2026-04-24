@@ -1,6 +1,6 @@
 {
   "name": "nanobanana-adc",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Gemini 3 Pro Image CLI with Application Default Credentials (ADC) support",
   "license": "MIT",
   "keywords": [
