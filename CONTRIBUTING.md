@@ -73,14 +73,28 @@ Run from a Master session (Claude Code) inside this repo:
 
 `/release` creates a `--exclusive` task that a Conductor drains and executes:
 
-1. Bump `package.json` + `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`.
+1. Bump `package.json` + `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` + `src/cli.ts`.
 2. Prepend a new section to `CHANGELOG.md`.
 3. `git commit` + `git tag v<X.Y.Z>` + `git push origin main v<X.Y.Z>`.
 4. GitHub Actions `release.yml` then publishes to npm (OIDC provenance) and
    creates the GitHub Release from the matching CHANGELOG section.
+5. Refresh the local Claude Code plugin cache so the new version becomes
+   visible on this machine:
+   ```bash
+   claude plugin marketplace update hummer98-nanobanana-adc
+   claude plugin update nanobanana-adc@hummer98-nanobanana-adc
+   # Restart Claude Code to reload plugin.json / SessionStart hooks.
+   ```
+6. (Optional) Bump the globally installed CLI:
+   ```bash
+   npm install -g nanobanana-adc@<X.Y.Z>
+   ```
 
 Trusted Publisher at npmjs.com must be configured for `nanobanana-adc` before
-the first CI-driven release; otherwise the publish step 401s.
+the first CI-driven release; otherwise the publish step 401s. Step 5 is not
+optional — without it, `claude plugin list` will keep showing the previous
+version even though the package is published, which looks like the release
+didn't happen.
 
 ## CI
 

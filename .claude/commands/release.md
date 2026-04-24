@@ -161,100 +161,79 @@ git push origin main
 git push origin "v${NEW_VERSION}"
 ```
 
-### 6. plugin marketplace キャッシュ更新（存在する場合のみ）
+### 6. GitHub Actions の release workflow を監視
+
+tag push を契機に `release.yml` が自動発火し、OIDC Trusted Publishing で `npm publish --provenance --access public` と GitHub Release 作成を行う。Conductor は完了を待って結果を確認する:
 
 ```
-MARKETPLACE_DIR="${HOME}/.claude/plugins/marketplaces/yamamoto-nanobanana-adc"
-if [ -d "$MARKETPLACE_DIR/.git" ]; then
-  (cd "$MARKETPLACE_DIR" && git pull origin main)
+sleep 5
+RUN_ID=$(gh run list --workflow=release.yml --limit=1 --json databaseId --jq '.[0].databaseId')
+if [ -n "$RUN_ID" ]; then
+  gh run watch "$RUN_ID" --exit-status
+  WORKFLOW_STATUS="ok"
 else
-  echo "marketplace cache not present; skipping"
+  echo "no release workflow run detected; tag push may have failed to trigger" >&2
+  WORKFLOW_STATUS="not-triggered"
 fi
 ```
 
-### 7. 旧バージョンの plugin キャッシュを削除（存在する場合のみ）
+### 7. npm registry で新バージョンが見えることを確認
+
+CI が publish に成功していれば `npm view` に新バージョンが反映される:
 
 ```
-CACHE_BASE="${HOME}/.claude/plugins/cache/yamamoto-nanobanana-adc/nanobanana-adc"
-if [ -d "$CACHE_BASE" ]; then
-  LATEST=$(ls -d "$CACHE_BASE"/*/ 2>/dev/null | sort -V | tail -1)
-  for dir in "$CACHE_BASE"/*/; do
-    [ "$dir" != "$LATEST" ] && rm -rf "$dir"
-  done
+PUBLISHED=$(npm view "nanobanana-adc@${NEW_VERSION}" version 2>/dev/null || echo "")
+if [ "$PUBLISHED" = "${NEW_VERSION}" ]; then
+  echo "npm publish verified: nanobanana-adc@${NEW_VERSION}"
+  PUBLISH_STATUS="ok"
 else
-  echo "plugin cache not present; skipping"
+  echo "npm publish NOT verified on registry" >&2
+  PUBLISH_STATUS="missing"
 fi
 ```
 
-### 8. plugin を再インストール（marketplace 登録済みの場合のみ）
+### 8. plugin marketplace キャッシュと plugin 本体を更新
+
+npm と GitHub が更新されても、Claude Code のローカル plugin キャッシュは手動更新しない限り古いまま残る（実際に v0.3.0 リリース時もこれで "release されていないように見える" 混乱が発生した）。`claude plugin` CLI で反映させる:
 
 ```
-if claude plugin list 2>/dev/null | grep -q "nanobanana-adc@yamamoto-nanobanana-adc"; then
-  claude plugin uninstall nanobanana-adc@yamamoto-nanobanana-adc
-  claude plugin install nanobanana-adc@yamamoto-nanobanana-adc
+# 8.1 marketplace のソースキャッシュを最新 main に追従
+if claude plugin marketplace list 2>/dev/null | grep -q "hummer98-nanobanana-adc"; then
+  claude plugin marketplace update hummer98-nanobanana-adc
+else
+  echo "marketplace hummer98-nanobanana-adc not registered; skipping"
+fi
+
+# 8.2 user scope にインストール済みなら新バージョンへ更新
+if claude plugin list 2>/dev/null | grep -q "nanobanana-adc@hummer98-nanobanana-adc"; then
+  claude plugin update nanobanana-adc@hummer98-nanobanana-adc
+  echo "Claude Code のリスタートが必要: plugin.json / SessionStart hook を再読込するために手動で再起動してください"
 else
   echo "plugin not installed via marketplace; skipping"
 fi
 ```
 
-### 9. GitHub Actions 監視（release.yml が存在する場合のみ）
+### 9. （任意）旧バージョンの plugin キャッシュを削除
 
-nanobanana-adc では `.github/workflows/release.yml` 未整備。将来整備されたら自動で有効化される:
+`plugin update` が行うインストール後、古い version ディレクトリが残ることがある。ディスクを節約したければ最新だけ残して削除する（残っていても動作に支障はない）:
 
 ```
-if [ -f "$PROJECT_ROOT/.github/workflows/release.yml" ]; then
-  sleep 5
-  RUN_ID=$(gh run list --workflow=release.yml --limit=1 --json databaseId --jq '.[0].databaseId')
-  if [ -n "$RUN_ID" ]; then
-    gh run watch "$RUN_ID" --exit-status
-  fi
-else
-  echo "release.yml not configured; skipping GitHub Actions monitoring"
+CACHE_BASE="${HOME}/.claude/plugins/cache/hummer98-nanobanana-adc/nanobanana-adc"
+if [ -d "$CACHE_BASE" ]; then
+  LATEST=$(ls -d "$CACHE_BASE"/*/ 2>/dev/null | sort -V | tail -1)
+  for dir in "$CACHE_BASE"/*/; do
+    [ "$dir" != "$LATEST" ] && rm -rf "$dir"
+  done
 fi
 ```
 
-### 10. npm publish（Conductor が直接実行）
+### 10. （任意）グローバル CLI をローカル反映
 
-cmux-team は GitHub Actions 側で publish するが、nanobanana-adc はまだ workflow 未整備なので Conductor が直接 publish する。重複 publish を防ぐため先に registry の状態を確認し、`--dry-run` が通ってから本番 publish に進む:
+`npm install -g nanobanana-adc` を使っているユーザー向け。CI publish 後に `npm view` に新バージョンが出てから実行する:
 
 ```
-cd "$PROJECT_ROOT"
-
-# 10.1 registry 側で既にこのバージョンが公開されていないか確認
-if npm view "nanobanana-adc@${NEW_VERSION}" version >/dev/null 2>&1; then
-  echo "WARNING: nanobanana-adc@${NEW_VERSION} is already published on npm registry" >&2
-  # journal に記録して中断（重複 publish 防止）
-  exit 1
-fi
-
-# 10.2 パッケージ名が registry に登録済みか確認（初回 publish 判別）
-if npm view nanobanana-adc version >/dev/null 2>&1; then
-  echo "nanobanana-adc already registered; this is an update"
-else
-  echo "nanobanana-adc not yet registered; this will be the first publish"
-fi
-
-# 10.3 dry-run で検証
-if ! npm publish --dry-run --access public; then
-  echo "npm publish --dry-run failed; aborting" >&2
-  exit 1
-fi
-
-# 10.4 本番 publish（失敗しても exit せず journal に記録して後続へ）
-if npm publish --access public; then
-  echo "npm publish succeeded: nanobanana-adc@${NEW_VERSION}"
-  PUBLISH_STATUS="ok"
-else
-  echo "npm publish FAILED; will record in journal" >&2
-  PUBLISH_STATUS="failed"
-fi
+npm install -g "nanobanana-adc@${NEW_VERSION}" 2>/dev/null || echo "npm install -g skipped (not globally installed)"
 ```
-
-運用メモ:
-
-- `--access public` は unscoped パッケージでは省略可能だが、意図を明示するため付ける
-- 将来 `.github/workflows/release.yml` が整備されたら、このステップを workflow 側に委譲して `npm install` 確認だけに置き換える余地を残している
-- 2FA `auth-and-writes` が有効になっている場合は Conductor からは publish できないため、事前に `npm login` か `NPM_TOKEN` 経由の認証を済ませておくこと
 
 ### 11. close-task で完了記録
 
@@ -265,11 +244,10 @@ cmux-team close-task --task-id <id> --journal "$(cat <<EOF
 リリース完了: v${CURRENT} → v${NEW_VERSION}
 - タグ: v${NEW_VERSION}
 - CHANGELOG.md: 更新済み
-- package.json: 更新済み
-- plugin.json: $([ -f .claude-plugin/plugin.json ] && echo "更新済み" || echo "未整備のためスキップ")
-- marketplace: $([ -d "$MARKETPLACE_DIR/.git" ] && echo "更新済み" || echo "未登録のためスキップ")
-- GitHub Actions: $([ -f .github/workflows/release.yml ] && echo "監視済み" || echo "未整備のためスキップ")
-- npm publish: ${PUBLISH_STATUS:-skipped} (nanobanana-adc@${NEW_VERSION})
+- package.json / plugin.json / marketplace.json / src/cli.ts: 更新済み
+- GitHub Actions release.yml: ${WORKFLOW_STATUS:-skipped}
+- npm registry 反映: ${PUBLISH_STATUS:-skipped} (nanobanana-adc@${NEW_VERSION})
+- plugin cache: ${MARKETPLACE_DIR:+updated}
 EOF
 )"
 ```
@@ -292,7 +270,7 @@ TASK_BODY
 - ただし非排他 `--run-after-all` タスクが既に存在する場合は `RUN_AFTER_ALL_CONFLICT` でエラーになる
 - バージョン引数はタスクタイトルに埋め込まれ、Conductor がそれを読み取る
 - Master はタスク作成以降リリース作業に関与しない
-- **nanobanana-adc 固有**: npm publish は Conductor が直接実行する。事前に `npm login` か `NPM_TOKEN` 経由の auth を済ませておくこと
-- **nanobanana-adc 固有**: 現状 `.claude-plugin/` および `.github/workflows/` は未整備。将来整備された場合は該当ステップが自動的に有効化される設計
+- **nanobanana-adc 固有**: npm publish は GitHub Actions の `release.yml` が OIDC Trusted Publishing で実行する。npm 側の Trusted Publisher 設定（`hummer98/nanobanana-adc` repo / `release.yml` workflow）が前提
+- **nanobanana-adc 固有**: `.claude-plugin/plugin.json` + `marketplace.json` は `hummer98-nanobanana-adc` marketplace として公開済み。リリース後は §8 の `claude plugin marketplace update` + `claude plugin update` でローカル反映が必要
 
 <!-- 参考元: cmux-team/.claude/commands/release.md (hummer98/cmux-team) -->
