@@ -129,7 +129,7 @@ nanobanana-adc doctor
 
 CLI
   path:                             /usr/local/lib/node_modules/nanobanana-adc/dist/cli.js
-  version:                          0.5.0
+  version:                          0.6.0
   install:                          npm-global
 
 Auth route
@@ -150,11 +150,21 @@ GCP env
   GOOGLE_GENAI_USE_VERTEXAI:        true
   GOOGLE_APPLICATION_CREDENTIALS:   (unset)
 
+Gcloud config dir
+  resolved:                         /home/user/.config/gcloud
+  source:                           default ($HOME/.config/gcloud)
+  presence:
+    active_config:                  exists
+    configurations/:                exists (1 entry)
+    credentials.db:                 exists
+    access_tokens.db:               exists
+    application_default_credentials.json: exists
+    legacy_credentials/:            missing
+
 ADC source
-  resolved:                         default
+  resolved:                         default (effective default)
   env GOOGLE_APPLICATION_CREDENTIALS: (unset)
-  default location:                 /home/user/.config/gcloud/application_default_credentials.json   (exists, 2400 B, 2026-04-26T07:00:00.000Z)
-  CLOUDSDK_CONFIG path:             (unset)
+  effective default:                /home/user/.config/gcloud/application_default_credentials.json   (exists, 2400 B, 2026-04-26T07:00:00.000Z)
   metadata server:                  not probed (no GCE/Cloud Run env detected)
   type:                             authorized_user
   quotaProjectId:                   my-gcp-proj
@@ -169,13 +179,53 @@ Warnings (0)
   (none)
 ```
 
-`doctor` reports three additional warnings introduced in v0.5.0:
+<details>
+<summary>With <code>CLOUDSDK_CONFIG</code> set (gcloud config dir overridden)</summary>
+
+```text
+Gcloud config dir
+  resolved:                         /Users/me/git/other-repo/.config/gcloud
+  source:                           env CLOUDSDK_CONFIG
+  presence:
+    active_config:                  exists
+    configurations/:                exists (3 entries)
+    credentials.db:                 exists
+    access_tokens.db:               exists
+    application_default_credentials.json: exists
+    legacy_credentials/:            missing
+  note:                             overrides $HOME/.config/gcloud entirely; gcloud auth list / configurations / ADC are isolated from the OS default
+
+ADC source
+  resolved:                         default (effective default)
+  env GOOGLE_APPLICATION_CREDENTIALS: (unset)
+  effective default:                /Users/me/git/other-repo/.config/gcloud/application_default_credentials.json   (exists, 2400 B, ...)
+  ...
+
+Warnings (1)
+  ⓘ [CLOUDSDK_CONFIG_OVERRIDE] gcloud config directory is overridden to `/Users/me/git/other-repo/.config/gcloud` via CLOUDSDK_CONFIG; gcloud auth / configurations / ADC are isolated from $HOME/.config/gcloud.
+```
+
+</details>
+
+`doctor` reports four additional warnings introduced in v0.5.0 / v0.6.0:
 
 | code | severity | when it fires |
 |---|---|---|
 | `ADC_QUOTA_PROJECT_MISMATCH` | `warn` | `quota_project_id` in the ADC JSON differs from `GOOGLE_CLOUD_PROJECT`. Run `gcloud auth application-default set-quota-project $GOOGLE_CLOUD_PROJECT` to align them. |
 | `ADC_FILE_MISSING` | `warn` | `GOOGLE_APPLICATION_CREDENTIALS` is set but the file does not exist (or is a directory). Fires alongside the existing `CREDS_FILE_MISSING` for backward compatibility. |
 | `ADC_TYPE_UNUSUAL` | `info` | The ADC JSON parsed but `type` is not one of `authorized_user` / `service_account` / `external_account` / `impersonated_service_account`. |
+| `CLOUDSDK_CONFIG_OVERRIDE` | `info` | `CLOUDSDK_CONFIG` is set; gcloud auth list / configurations / ADC are isolated from `$HOME/.config/gcloud`. |
+
+### Migrating from v0.5
+
+`adcSource.resolved === 'default'` changed meaning in v0.6: in v0.5 it meant
+"ADC was found at the OS default path (`$HOME/.config/gcloud/...`)"; in v0.6
+it means "ADC was found at the *effective* default — `$CLOUDSDK_CONFIG/...`
+when that env is set, otherwise the OS default." The actual path is now in
+`adcSource.effectiveDefault.path` (with `adcSource.defaultLocation.path` kept
+as an alias for v0.6.x and removed in v1.0). `adcSource.resolved ===
+'cloudsdk-config'` is no longer produced — the `'default'` branch covers that
+case, and dir-level state has moved to the new top-level `gcloudConfigDir`.
 
 Common flags:
 
@@ -185,8 +235,11 @@ Common flags:
 # the existing .gcpEnv / .authRoute / .apiKey style.
 nanobanana-adc doctor --json | jq .
 
-# Inspect just the new ADC source resolution section:
+# Inspect just the ADC source resolution section:
 nanobanana-adc doctor --json | jq .adcSource
+
+# Inspect the gcloud config directory (resolved path, source, presence):
+nanobanana-adc doctor --json | jq .gcloudConfigDir
 
 # Gate a script on no-fatal-state:
 nanobanana-adc doctor --json | jq -e '.fatal | not' >/dev/null && echo "ready"
@@ -200,7 +253,7 @@ nanobanana-adc doctor --probe-metadata-server
 
 `doctor` always exits `0` — even when it reports `fatal: true` — because it is
 a diagnostic command, not a gate. Use `--json` + `jq` to drive CI. See
-[CHANGELOG.md](./CHANGELOG.md) v0.4.0 / v0.5.0 for the full rationale.
+[CHANGELOG.md](./CHANGELOG.md) v0.4.0 / v0.5.0 / v0.6.0 for the full rationale.
 
 > **Note**: `--verbose` can include personal email addresses (from
 > `gcloud auth list` / `gcloud config get-value account`) and local file

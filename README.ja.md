@@ -130,7 +130,7 @@ nanobanana-adc doctor
 
 CLI
   path:                             /usr/local/lib/node_modules/nanobanana-adc/dist/cli.js
-  version:                          0.5.0
+  version:                          0.6.0
   install:                          npm-global
 
 Auth route
@@ -151,11 +151,21 @@ GCP env
   GOOGLE_GENAI_USE_VERTEXAI:        true
   GOOGLE_APPLICATION_CREDENTIALS:   (unset)
 
+Gcloud config dir
+  resolved:                         /home/user/.config/gcloud
+  source:                           default ($HOME/.config/gcloud)
+  presence:
+    active_config:                  exists
+    configurations/:                exists (1 entry)
+    credentials.db:                 exists
+    access_tokens.db:               exists
+    application_default_credentials.json: exists
+    legacy_credentials/:            missing
+
 ADC source
-  resolved:                         default
+  resolved:                         default (effective default)
   env GOOGLE_APPLICATION_CREDENTIALS: (unset)
-  default location:                 /home/user/.config/gcloud/application_default_credentials.json   (exists, 2400 B, 2026-04-26T07:00:00.000Z)
-  CLOUDSDK_CONFIG path:             (unset)
+  effective default:                /home/user/.config/gcloud/application_default_credentials.json   (exists, 2400 B, 2026-04-26T07:00:00.000Z)
   metadata server:                  not probed (no GCE/Cloud Run env detected)
   type:                             authorized_user
   quotaProjectId:                   my-gcp-proj
@@ -170,6 +180,34 @@ Warnings (0)
   (none)
 ```
 
+<details>
+<summary><code>CLOUDSDK_CONFIG</code> を指定したとき（gcloud 設定 dir 全体を別ディレクトリに切替）</summary>
+
+```text
+Gcloud config dir
+  resolved:                         /Users/me/git/other-repo/.config/gcloud
+  source:                           env CLOUDSDK_CONFIG
+  presence:
+    active_config:                  exists
+    configurations/:                exists (3 entries)
+    credentials.db:                 exists
+    access_tokens.db:               exists
+    application_default_credentials.json: exists
+    legacy_credentials/:            missing
+  note:                             overrides $HOME/.config/gcloud entirely; gcloud auth list / configurations / ADC are isolated from the OS default
+
+ADC source
+  resolved:                         default (effective default)
+  env GOOGLE_APPLICATION_CREDENTIALS: (unset)
+  effective default:                /Users/me/git/other-repo/.config/gcloud/application_default_credentials.json   (exists, 2400 B, ...)
+  ...
+
+Warnings (1)
+  ⓘ [CLOUDSDK_CONFIG_OVERRIDE] gcloud config directory is overridden to `/Users/me/git/other-repo/.config/gcloud` via CLOUDSDK_CONFIG; gcloud auth / configurations / ADC are isolated from $HOME/.config/gcloud.
+```
+
+</details>
+
 主な使い方:
 
 ```bash
@@ -178,8 +216,11 @@ Warnings (0)
 # など、既存の `.gcpEnv` / `.authRoute` / `.apiKey` と同じスタイル）。
 nanobanana-adc doctor --json | jq .
 
-# 新しい ADC source セクションだけを覗く:
+# ADC source セクションだけを覗く:
 nanobanana-adc doctor --json | jq .adcSource
+
+# 新規: gcloud 設定 dir の解決先と presence を覗く:
+nanobanana-adc doctor --json | jq .gcloudConfigDir
 
 # fatal でないことを gate にする:
 nanobanana-adc doctor --json | jq -e '.fatal | not' >/dev/null && echo "ready"
@@ -193,7 +234,19 @@ nanobanana-adc doctor --probe-metadata-server
 
 `doctor` は **常に exit code 0** を返します（`fatal: true` でも 0）。これは
 診断ツールという設計哲学で、ゲートとして使う場合は `--json | jq` を経由して
-ください。詳細は [CHANGELOG.md](./CHANGELOG.md) の v0.4.0 / v0.5.0 参照。
+ください。詳細は [CHANGELOG.md](./CHANGELOG.md) の v0.4.0 / v0.5.0 / v0.6.0 参照。
+
+### v0.5 からの移行
+
+`adcSource.resolved === 'default'` の意味が v0.6 から変わっています。v0.5
+では「OS default のパス（`$HOME/.config/gcloud/...`）にファイルがある」を
+意味していましたが、v0.6 からは「**effective default**（`CLOUDSDK_CONFIG`
+が set ならそのパス、それ以外は OS default）にファイルがある」を意味します。
+実際のパスは `adcSource.effectiveDefault.path` を参照してください
+（`adcSource.defaultLocation.path` は v0.6.x の互換 alias として残し、
+v1.0 で削除予定）。`adcSource.resolved === 'cloudsdk-config'` は v0.6 で
+生成停止です — 該当ケースは `'default'` 分岐に流れ、dir 単位の状態は
+新設の top-level `gcloudConfigDir` で確認できます。
 
 ### Warning コード対訳
 
@@ -212,6 +265,7 @@ Warning の `code` は JSON schema 互換性維持のため英語のまま固定
 | `ADC_QUOTA_PROJECT_MISMATCH` | ADC JSON の `quota_project_id` と `GOOGLE_CLOUD_PROJECT` が食い違っています（課金プロジェクトと操作対象がずれます） |
 | `ADC_FILE_MISSING` | `GOOGLE_APPLICATION_CREDENTIALS` のパスが存在しない／ディレクトリです（既存の `CREDS_FILE_MISSING` と並列で発火） |
 | `ADC_TYPE_UNUSUAL` | ADC JSON の `type` が想定 4 種（`authorized_user` / `service_account` / `external_account` / `impersonated_service_account`）以外です（info） |
+| `CLOUDSDK_CONFIG_OVERRIDE` | `CLOUDSDK_CONFIG` が set されています。gcloud auth list / configurations / ADC は `$HOME/.config/gcloud` から分離されています（info） |
 
 > **注意**: `--verbose` 出力には個人のメールアドレス（`gcloud auth list`
 > / `gcloud config get-value account`）やローカルパスが含まれることが

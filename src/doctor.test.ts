@@ -10,11 +10,13 @@ import {
   resolveAuthRoute,
   parseAdcMeta,
   resolveAdcSource,
+  resolveGcloudConfigDir,
   defaultGcloudActiveAccountFetcher,
   type DoctorEnv,
   type DoctorReport,
   type AdcProbeResult,
   type AdcSourceReport,
+  type GcloudConfigDirReport,
 } from './doctor.js';
 
 const NOW_MS = () => 0;
@@ -23,12 +25,28 @@ const FAKE_VERSION = '0.4.0';
 
 const GOOD_KEY = 'AIzaSy' + 'A'.repeat(33); // 39 chars, starts with AIza
 
+const FAKE_DEFAULT_FILE = { path: '/fake/default', exists: false } as const;
+
 const MINIMAL_ADC_SOURCE_STUB: AdcSourceReport = {
   resolved: 'unknown',
   envCredentials: null,
-  defaultLocation: { path: '/fake/default', exists: false },
+  effectiveDefault: { ...FAKE_DEFAULT_FILE },
+  defaultLocation: { ...FAKE_DEFAULT_FILE },
   metadataServer: { envHeuristic: 'none', probed: false },
   meta: null,
+};
+
+const MINIMAL_GCLOUD_CONFIG_DIR_STUB: GcloudConfigDirReport = {
+  resolved: '/fake/.config/gcloud',
+  source: 'default',
+  presence: {
+    activeConfig: { state: 'missing' },
+    configurations: { state: 'missing' },
+    credentialsDb: { state: 'missing' },
+    accessTokensDb: { state: 'missing' },
+    applicationDefaultCredentialsJson: { state: 'missing' },
+    legacyCredentials: { state: 'missing' },
+  },
 };
 
 function baseOpts(overrides: Partial<Parameters<typeof buildDoctorReport>[1]> = {}) {
@@ -43,6 +61,8 @@ function baseOpts(overrides: Partial<Parameters<typeof buildDoctorReport>[1]> = 
     gcloudProjectFetcher: async () => undefined,
     gcloudAdcFilePathFetcher: async () => undefined,
     adcSourceResolver: async (): Promise<AdcSourceReport> => MINIMAL_ADC_SOURCE_STUB,
+    gcloudConfigDirResolver: async (): Promise<GcloudConfigDirReport> =>
+      MINIMAL_GCLOUD_CONFIG_DIR_STUB,
     ...overrides,
   };
 }
@@ -546,7 +566,10 @@ test('39. resolveAdcSource: default location only → resolved=default', async (
   assert.equal(r.meta?.type, 'authorized_user');
 });
 
-test('40. resolveAdcSource: CLOUDSDK_CONFIG set + file exists (no env creds) → resolved=cloudsdk-config', async () => {
+test('40. resolveAdcSource: CLOUDSDK_CONFIG set + file exists (no env creds) → resolved=default (effective default at CLOUDSDK_CONFIG path)', async () => {
+  // v0.6+: 'cloudsdk-config' kind is no longer produced. The effective-default
+  // path is CLOUDSDK_CONFIG-aware, and resolved becomes 'default' when that path
+  // contains an ADC file.
   const env: DoctorEnv = { CLOUDSDK_CONFIG: '/etc/gcloud' };
   const cloudsdkPath = '/etc/gcloud/application_default_credentials.json';
   const r = await resolveAdcSource(env, { probeMetadataServer: false }, {
@@ -558,9 +581,13 @@ test('40. resolveAdcSource: CLOUDSDK_CONFIG set + file exists (no env creds) →
     metadataServerProbe: noopProbe,
     gcloudActiveAccountFetcher: async () => undefined,
   });
-  assert.equal(r.resolved, 'cloudsdk-config');
-  assert.ok(r.cloudsdkConfig);
-  assert.equal(r.cloudsdkConfig?.exists, true);
+  assert.equal(r.resolved, 'default');
+  assert.equal(r.effectiveDefault.path, cloudsdkPath);
+  assert.equal(r.effectiveDefault.exists, true);
+  // defaultLocation is an alias of effectiveDefault for v0.6+ compat
+  assert.equal(r.defaultLocation, r.effectiveDefault);
+  // cloudsdkConfig field is no longer populated (always omitted)
+  assert.equal('cloudsdkConfig' in r, false);
   assert.equal(r.meta?.type, 'service_account');
   assert.equal(r.meta?.clientEmail, 'sa@x');
 });
@@ -762,9 +789,18 @@ test('51. resolveAdcSource: probeMetadataServer=true + envHeuristic=none still p
 // ───────────────────────────────────────────────────────────────────────────
 
 function adcSourceStub(overrides: Partial<AdcSourceReport> = {}): AdcSourceReport {
+  // Keep effectiveDefault and defaultLocation in sync as a single object — v0.6
+  // makes defaultLocation an alias of effectiveDefault, so a stub that lets one
+  // override "the default file info" must propagate to both fields.
+  const ed =
+    overrides.effectiveDefault ??
+    overrides.defaultLocation ??
+    MINIMAL_ADC_SOURCE_STUB.effectiveDefault;
   return {
     ...MINIMAL_ADC_SOURCE_STUB,
     ...overrides,
+    effectiveDefault: ed,
+    defaultLocation: ed,
   };
 }
 
@@ -1058,4 +1094,437 @@ test('67. defaultGcloudActiveAccountFetcher: integration with multi-line stub vi
     gcloudActiveAccountFetcher: async () => 'first@x',
   });
   assert.equal(r.account, 'first@x');
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 70-74. resolveAdcSource — CLOUDSDK_CONFIG-aware effective default (T16)
+// ───────────────────────────────────────────────────────────────────────────
+
+test('70. resolveAdcSource: CLOUDSDK_CONFIG set + ADC exists at that path → resolved=default, effectiveDefault under CLOUDSDK_CONFIG', async () => {
+  const env: DoctorEnv = { CLOUDSDK_CONFIG: '/cs' };
+  const cloudsdkPath = '/cs/application_default_credentials.json';
+  const r = await resolveAdcSource(env, { probeMetadataServer: false }, {
+    statAsync: makeStat({ [cloudsdkPath]: { size: 200, mtimeMs: 1, isFile: true } }),
+    readJsonAsync: async () => ({ type: 'authorized_user' }),
+    homeDir: () => '/home/u',
+    appDataDir: () => undefined,
+    platform: 'linux',
+    metadataServerProbe: noopProbe,
+    gcloudActiveAccountFetcher: async () => undefined,
+  });
+  assert.equal(r.resolved, 'default');
+  assert.equal(r.effectiveDefault.path, cloudsdkPath);
+  assert.equal(r.effectiveDefault.exists, true);
+  assert.equal(r.defaultLocation, r.effectiveDefault); // alias
+  assert.equal('cloudsdkConfig' in r, false);
+});
+
+test('71. resolveAdcSource: CLOUDSDK_CONFIG set + ADC missing → resolved=unknown, effectiveDefault.exists=false', async () => {
+  const env: DoctorEnv = { CLOUDSDK_CONFIG: '/cs' };
+  const r = await resolveAdcSource(env, { probeMetadataServer: false }, {
+    statAsync: async () => null,
+    readJsonAsync: async () => null,
+    homeDir: () => '/home/u',
+    appDataDir: () => undefined,
+    platform: 'linux',
+    metadataServerProbe: noopProbe,
+    gcloudActiveAccountFetcher: async () => undefined,
+  });
+  assert.equal(r.resolved, 'unknown');
+  assert.equal(r.effectiveDefault.path, '/cs/application_default_credentials.json');
+  assert.equal(r.effectiveDefault.exists, false);
+  assert.equal(r.meta, null);
+});
+
+test('72. resolveAdcSource: CLOUDSDK_CONFIG unset → effectiveDefault uses $HOME/.config/gcloud', async () => {
+  const env: DoctorEnv = {};
+  const defaultPath = '/home/u/.config/gcloud/application_default_credentials.json';
+  const r = await resolveAdcSource(env, { probeMetadataServer: false }, {
+    statAsync: makeStat({ [defaultPath]: { size: 200, mtimeMs: 1, isFile: true } }),
+    readJsonAsync: async () => ({ type: 'authorized_user' }),
+    homeDir: () => '/home/u',
+    appDataDir: () => undefined,
+    platform: 'linux',
+    metadataServerProbe: noopProbe,
+    gcloudActiveAccountFetcher: async () => undefined,
+  });
+  assert.equal(r.effectiveDefault.path, defaultPath);
+  assert.equal(r.resolved, 'default');
+});
+
+test('73. resolveAdcSource: GOOGLE_APPLICATION_CREDENTIALS wins over CLOUDSDK_CONFIG', async () => {
+  const env: DoctorEnv = {
+    GOOGLE_APPLICATION_CREDENTIALS: '/env/sa.json',
+    CLOUDSDK_CONFIG: '/cs',
+  };
+  const r = await resolveAdcSource(env, { probeMetadataServer: false }, {
+    statAsync: makeStat({
+      '/env/sa.json': { size: 200, mtimeMs: 1, isFile: true },
+      '/cs/application_default_credentials.json': { size: 300, mtimeMs: 2, isFile: true },
+    }),
+    readJsonAsync: async () => ({ type: 'authorized_user' }),
+    homeDir: () => '/home/u',
+    appDataDir: () => undefined,
+    platform: 'linux',
+    metadataServerProbe: noopProbe,
+    gcloudActiveAccountFetcher: async () => undefined,
+  });
+  assert.equal(r.resolved, 'env');
+  assert.equal(r.envCredentials?.exists, true);
+  // effectiveDefault is still surfaced as informational state
+  assert.equal(r.effectiveDefault.path, '/cs/application_default_credentials.json');
+  assert.equal(r.defaultLocation, r.effectiveDefault);
+});
+
+test('74. resolveAdcSource: CLOUDSDK_CONFIG empty string is treated as unset', async () => {
+  const env: DoctorEnv = { CLOUDSDK_CONFIG: '' };
+  const r = await resolveAdcSource(env, { probeMetadataServer: false }, {
+    statAsync: async () => null,
+    readJsonAsync: async () => null,
+    homeDir: () => '/home/u',
+    appDataDir: () => undefined,
+    platform: 'linux',
+    metadataServerProbe: noopProbe,
+    gcloudActiveAccountFetcher: async () => undefined,
+  });
+  assert.equal(
+    r.effectiveDefault.path,
+    '/home/u/.config/gcloud/application_default_credentials.json',
+  );
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 75-78. resolveGcloudConfigDir — gcloud config directory presence (T16)
+// ───────────────────────────────────────────────────────────────────────────
+
+type DirStat = { size: number; mtimeMs: number; isFile: boolean; isDirectory: boolean };
+
+function makeDirStat(map: Record<string, DirStat>) {
+  return async (path: string) => map[path] ?? null;
+}
+
+test('75. resolveGcloudConfigDir: CLOUDSDK_CONFIG set + all files present', async () => {
+  const env: DoctorEnv = { CLOUDSDK_CONFIG: '/cs' };
+  const r = await resolveGcloudConfigDir(env, {
+    statAsync: makeDirStat({
+      '/cs/active_config': { size: 10, mtimeMs: 1, isFile: true, isDirectory: false },
+      '/cs/configurations': { size: 4096, mtimeMs: 1, isFile: false, isDirectory: true },
+      '/cs/credentials.db': { size: 32768, mtimeMs: 1, isFile: true, isDirectory: false },
+      '/cs/access_tokens.db': { size: 8192, mtimeMs: 1, isFile: true, isDirectory: false },
+      '/cs/application_default_credentials.json': {
+        size: 320,
+        mtimeMs: 1,
+        isFile: true,
+        isDirectory: false,
+      },
+      '/cs/legacy_credentials': { size: 4096, mtimeMs: 1, isFile: false, isDirectory: true },
+    }),
+    readDirCount: async (p) => (p === '/cs/configurations' ? 3 : null),
+    homeDir: () => '/home/u',
+    appDataDir: () => undefined,
+    platform: 'linux',
+  });
+  assert.equal(r.resolved, '/cs');
+  assert.equal(r.source, 'env-cloudsdk-config');
+  assert.equal(r.presence.activeConfig.state, 'exists');
+  assert.equal(r.presence.configurations.state, 'exists');
+  assert.equal(r.presence.configurations.entries, 3);
+  assert.equal(r.presence.credentialsDb.state, 'exists');
+  assert.equal(r.presence.accessTokensDb.state, 'exists');
+  assert.equal(r.presence.applicationDefaultCredentialsJson.state, 'exists');
+  assert.equal(r.presence.legacyCredentials.state, 'exists');
+  assert.match(r.note ?? '', /overrides/);
+});
+
+test('76. resolveGcloudConfigDir: CLOUDSDK_CONFIG set + dir does not exist → all presence missing, no throw', async () => {
+  const env: DoctorEnv = { CLOUDSDK_CONFIG: '/cs' };
+  const r = await resolveGcloudConfigDir(env, {
+    statAsync: async () => null,
+    readDirCount: async () => null,
+    homeDir: () => '/home/u',
+    appDataDir: () => undefined,
+    platform: 'linux',
+  });
+  assert.equal(r.resolved, '/cs');
+  assert.equal(r.source, 'env-cloudsdk-config');
+  assert.equal(r.presence.activeConfig.state, 'missing');
+  assert.equal(r.presence.configurations.state, 'missing');
+  assert.equal(r.presence.credentialsDb.state, 'missing');
+  assert.equal(r.presence.accessTokensDb.state, 'missing');
+  assert.equal(r.presence.applicationDefaultCredentialsJson.state, 'missing');
+  assert.equal(r.presence.legacyCredentials.state, 'missing');
+  assert.ok(r.note && r.note.length > 0);
+});
+
+test('77. resolveGcloudConfigDir: CLOUDSDK_CONFIG unset → source=default, no note', async () => {
+  const env: DoctorEnv = {};
+  const r = await resolveGcloudConfigDir(env, {
+    statAsync: makeDirStat({
+      '/home/u/.config/gcloud/active_config': {
+        size: 10,
+        mtimeMs: 1,
+        isFile: true,
+        isDirectory: false,
+      },
+    }),
+    readDirCount: async () => null,
+    homeDir: () => '/home/u',
+    appDataDir: () => undefined,
+    platform: 'linux',
+  });
+  assert.equal(r.resolved, '/home/u/.config/gcloud');
+  assert.equal(r.source, 'default');
+  assert.equal(r.note, undefined);
+  assert.equal(r.presence.activeConfig.state, 'exists');
+});
+
+test('78. resolveGcloudConfigDir: stat throws (EACCES) → state=unreadable, no throw', async () => {
+  const env: DoctorEnv = { CLOUDSDK_CONFIG: '/cs' };
+  const r = await resolveGcloudConfigDir(env, {
+    statAsync: async () => {
+      throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    },
+    readDirCount: async () => null,
+    homeDir: () => '/home/u',
+    appDataDir: () => undefined,
+    platform: 'linux',
+  });
+  assert.equal(r.resolved, '/cs');
+  assert.equal(r.presence.activeConfig.state, 'unreadable');
+  assert.equal(r.presence.configurations.state, 'unreadable');
+  assert.equal(r.presence.credentialsDb.state, 'unreadable');
+  assert.equal(r.presence.accessTokensDb.state, 'unreadable');
+  assert.equal(r.presence.applicationDefaultCredentialsJson.state, 'unreadable');
+  assert.equal(r.presence.legacyCredentials.state, 'unreadable');
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 79-80. CLOUDSDK_CONFIG_OVERRIDE warning (T16)
+// ───────────────────────────────────────────────────────────────────────────
+
+test('79. warnCloudsdkConfigOverride: CLOUDSDK_CONFIG set → info warning fires', async () => {
+  const env: DoctorEnv = {
+    GEMINI_API_KEY: GOOD_KEY,
+    CLOUDSDK_CONFIG: '/cs',
+  };
+  const r = await buildDoctorReport(env, baseOpts());
+  const codes = r.warnings.map((w) => w.code);
+  assert.ok(
+    codes.includes('CLOUDSDK_CONFIG_OVERRIDE'),
+    `warnings=${JSON.stringify(r.warnings)}`,
+  );
+  const w = r.warnings.find((x) => x.code === 'CLOUDSDK_CONFIG_OVERRIDE');
+  assert.equal(w?.severity, 'info');
+  assert.match(w?.message ?? '', /\/cs/);
+});
+
+test('79b. GAC + CLOUDSDK_CONFIG 同時 set: resolved=env かつ CLOUDSDK_CONFIG_OVERRIDE warning も発火', async () => {
+  const env: DoctorEnv = {
+    GOOGLE_APPLICATION_CREDENTIALS: '/env/sa.json',
+    CLOUDSDK_CONFIG: '/cs',
+    GOOGLE_CLOUD_LOCATION: 'global',
+  };
+  const r = await buildDoctorReport(env, baseOpts({
+    credsFileExists: () => true,
+    adcSourceResolver: async () =>
+      adcSourceStub({
+        resolved: 'env',
+        envCredentials: { path: '/env/sa.json', exists: true, size: 200 },
+      }),
+  }));
+  assert.equal(r.adcSource.resolved, 'env');
+  const codes = r.warnings.map((w) => w.code);
+  assert.ok(
+    codes.includes('CLOUDSDK_CONFIG_OVERRIDE'),
+    `warnings=${JSON.stringify(r.warnings)}`,
+  );
+});
+
+test('80. warnCloudsdkConfigOverride: CLOUDSDK_CONFIG unset → not fired', async () => {
+  const env: DoctorEnv = { GEMINI_API_KEY: GOOD_KEY };
+  const r = await buildDoctorReport(env, baseOpts());
+  const codes = r.warnings.map((w) => w.code);
+  assert.equal(codes.includes('CLOUDSDK_CONFIG_OVERRIDE'), false);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 81-83b. Renderer / schema (T16)
+// ───────────────────────────────────────────────────────────────────────────
+
+test('81. JSON renderer includes gcloudConfigDir (camelCase)', async () => {
+  const env: DoctorEnv = { GEMINI_API_KEY: GOOD_KEY, CLOUDSDK_CONFIG: '/cs' };
+  const r = await buildDoctorReport(env, baseOpts({
+    gcloudConfigDirResolver: async () => ({
+      resolved: '/cs',
+      source: 'env-cloudsdk-config',
+      presence: {
+        activeConfig: { state: 'exists' },
+        configurations: { state: 'exists', entries: 3 },
+        credentialsDb: { state: 'exists' },
+        accessTokensDb: { state: 'exists' },
+        applicationDefaultCredentialsJson: { state: 'exists' },
+        legacyCredentials: { state: 'missing' },
+      },
+      note: 'overrides $HOME/.config/gcloud entirely',
+    }),
+  }));
+  const json = renderDoctorJSON(r);
+  const parsed = JSON.parse(json);
+  assert.ok(parsed.gcloudConfigDir, 'gcloudConfigDir key should exist');
+  assert.equal(parsed.gcloudConfigDir.source, 'env-cloudsdk-config');
+  assert.equal(parsed.gcloudConfigDir.presence.activeConfig.state, 'exists');
+  assert.equal(parsed.gcloudConfigDir.presence.configurations.entries, 3);
+  assert.doesNotMatch(json, /gcloud_config_dir/);
+});
+
+test('82. text renderer includes "Gcloud config dir" section header + note when CLOUDSDK_CONFIG set', async () => {
+  const env: DoctorEnv = { GEMINI_API_KEY: GOOD_KEY, CLOUDSDK_CONFIG: '/cs' };
+  const r = await buildDoctorReport(env, baseOpts({
+    gcloudConfigDirResolver: async () => ({
+      resolved: '/cs',
+      source: 'env-cloudsdk-config',
+      presence: {
+        activeConfig: { state: 'exists' },
+        configurations: { state: 'exists', entries: 3 },
+        credentialsDb: { state: 'exists' },
+        accessTokensDb: { state: 'exists' },
+        applicationDefaultCredentialsJson: { state: 'exists' },
+        legacyCredentials: { state: 'missing' },
+      },
+      note: 'overrides $HOME/.config/gcloud entirely',
+    }),
+  }));
+  const text = renderDoctorText(r);
+  assert.match(text, /Gcloud config dir/);
+  assert.match(text, /source:/);
+  assert.match(text, /note:.*overrides/);
+});
+
+test('83. text renderer: ADC source no longer prints "default location" or "CLOUDSDK_CONFIG path" rows', async () => {
+  const env: DoctorEnv = { GEMINI_API_KEY: GOOD_KEY };
+  const r = await buildDoctorReport(env, baseOpts({
+    adcSourceResolver: async () =>
+      adcSourceStub({
+        resolved: 'default',
+        defaultLocation: { path: '/x/adc.json', exists: true, size: 200, mtimeMs: 0 },
+        meta: { type: 'authorized_user' },
+      }),
+  }));
+  const text = renderDoctorText(r);
+  assert.doesNotMatch(text, /default location:/);
+  assert.doesNotMatch(text, /CLOUDSDK_CONFIG path:/);
+  assert.match(text, /effective default:/);
+});
+
+test('83b. text renderer: resolved 行は kind===default のとき "default (effective default)" と表示する', async () => {
+  // Case A: resolved='default' → text shows "default (effective default)"
+  const envA: DoctorEnv = { GEMINI_API_KEY: GOOD_KEY };
+  const rA = await buildDoctorReport(envA, baseOpts({
+    adcSourceResolver: async () =>
+      adcSourceStub({
+        resolved: 'default',
+        defaultLocation: { path: '/x/adc.json', exists: true, size: 200, mtimeMs: 0 },
+      }),
+  }));
+  const textA = renderDoctorText(rA);
+  assert.match(textA, /^\s*resolved:\s+default \(effective default\)/m);
+  // JSON kind unchanged
+  const parsedA = JSON.parse(renderDoctorJSON(rA));
+  assert.equal(parsedA.adcSource.resolved, 'default');
+
+  // Case B: resolved='env' → text shows plain "env" (no parenthetical)
+  const envB: DoctorEnv = {
+    GEMINI_API_KEY: GOOD_KEY,
+    GOOGLE_APPLICATION_CREDENTIALS: '/env/sa.json',
+  };
+  const rB = await buildDoctorReport(envB, baseOpts({
+    credsFileExists: () => true,
+    adcSourceResolver: async () =>
+      adcSourceStub({
+        resolved: 'env',
+        envCredentials: { path: '/env/sa.json', exists: true, size: 200 },
+      }),
+  }));
+  const textB = renderDoctorText(rB);
+  assert.match(textB, /^\s*resolved:\s+env(\s|$)/m);
+  assert.doesNotMatch(textB, /resolved:\s+default \(effective default\)/);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 84. LEAK_CANARY: secrets never appear when CLOUDSDK_CONFIG-overridden ADC
+//     points at a service_account JSON (T16)
+// ───────────────────────────────────────────────────────────────────────────
+
+test('84. LEAK_CANARY: secrets never appear when CLOUDSDK_CONFIG is set + service_account ADC at that path (verbose included)', async () => {
+  const env: DoctorEnv = {
+    GOOGLE_CLOUD_PROJECT: 'p',
+    GOOGLE_CLOUD_LOCATION: 'global',
+    GOOGLE_GENAI_USE_VERTEXAI: 'true',
+    CLOUDSDK_CONFIG: '/cs',
+  };
+  const cloudsdkPath = '/cs/application_default_credentials.json';
+  const stubReadJson = async () => ({
+    type: 'service_account',
+    client_email: 'sa@x.iam.gserviceaccount.com',
+    private_key:
+      '-----BEGIN PRIVATE KEY-----\nLEAK_CANARY_PRIVATE_KEY_BODY\n-----END PRIVATE KEY-----',
+    private_key_id: 'LEAK_CANARY_KEY_ID',
+    refresh_token: 'LEAK_CANARY_REFRESH_TOKEN',
+    client_id: '32555940559.apps.googleusercontent.com',
+    quota_project_id: 'p',
+  });
+  const r = await buildDoctorReport(env, baseOpts({
+    verbose: true,
+    credsFileExists: () => true,
+    adcProbe: async () => ({
+      ok: true,
+      tokenPrefix: 'abcd1234',
+      account: 'sa@x.iam.gserviceaccount.com',
+      project: 'p',
+    }),
+    adcSourceResolver: async () =>
+      resolveAdcSource(env, { probeMetadataServer: false }, {
+        statAsync: makeStat({
+          [cloudsdkPath]: { size: 1024, mtimeMs: 1, isFile: true },
+        }),
+        readJsonAsync: stubReadJson,
+        homeDir: () => '/home/u',
+        platform: 'linux',
+        metadataServerProbe: noopProbe,
+        gcloudActiveAccountFetcher: async () => 'sa@x.iam.gserviceaccount.com',
+      }),
+    gcloudConfigDirResolver: async () => ({
+      resolved: '/cs',
+      source: 'env-cloudsdk-config',
+      presence: {
+        activeConfig: { state: 'exists' },
+        configurations: { state: 'exists', entries: 1 },
+        credentialsDb: { state: 'exists' },
+        accessTokensDb: { state: 'exists' },
+        applicationDefaultCredentialsJson: { state: 'exists' },
+        legacyCredentials: { state: 'missing' },
+      },
+      note: 'overrides $HOME/.config/gcloud entirely',
+    }),
+  }));
+
+  const json = renderDoctorJSON(r);
+  const text = renderDoctorText(r);
+
+  // structural: secret key names absent
+  assert.doesNotMatch(json, /"private_key"/);
+  assert.doesNotMatch(json, /"private_key_id"/);
+  assert.doesNotMatch(json, /"refresh_token"/);
+  assert.doesNotMatch(json, /"privateKey"/);
+  assert.doesNotMatch(json, /"refreshToken"/);
+  assert.doesNotMatch(json, /-----BEGIN[\s\S]*?PRIVATE KEY-----/);
+
+  // value-based: LEAK_CANARY_* must not appear anywhere
+  assert.doesNotMatch(json, /LEAK_CANARY_/);
+  assert.doesNotMatch(text, /LEAK_CANARY_/);
+  assert.doesNotMatch(text, /-----BEGIN[\s\S]*?PRIVATE KEY-----/);
+
+  // positive: client_email IS surfaced; CLOUDSDK_CONFIG path is informational and ok to show
+  assert.match(json, /sa@x\.iam\.gserviceaccount\.com/);
+  assert.match(json, /\/cs/);
 });

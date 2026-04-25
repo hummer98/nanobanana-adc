@@ -16,12 +16,12 @@ import {
   type DoctorEnv,
 } from './doctor.js';
 
-const CLI_VERSION = '0.5.0';
+const CLI_VERSION = '0.6.0';
 
 const program = new Command()
   .name('nanobanana-adc')
   .description('Gemini 3 Pro Image CLI with ADC support')
-  .version('0.5.0');
+  .version('0.6.0');
 
 program
   .command('generate', { isDefault: true })

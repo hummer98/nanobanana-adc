@@ -1,5 +1,5 @@
 import { realpathSync, existsSync } from 'node:fs';
-import { stat as fsStat, readFile as fsReadFile } from 'node:fs/promises';
+import { stat as fsStat, readFile as fsReadFile, readdir as fsReaddir } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as http from 'node:http';
 import { sep } from 'node:path';
@@ -28,9 +28,24 @@ export interface DoctorEnv {
 // ADC source resolution types (T15)
 // ───────────────────────────────────────────────────────────────────────────
 
+/**
+ * ADC resolution result kind.
+ *
+ * v0.6+: the kind value set is the same as v0.5, but the meaning of
+ * `'default'` is now "effective default" — i.e. the resolver checked the
+ * single ADC default location, which is `$CLOUDSDK_CONFIG/...` when
+ * `CLOUDSDK_CONFIG` is set and `$HOME/.config/gcloud/...` (or the Windows
+ * equivalent under `%APPDATA%`) otherwise.
+ *
+ * @remarks
+ * `'cloudsdk-config'` is `@deprecated` in v0.6 and is no longer produced at
+ * runtime; the kept literal exists only to preserve type-level compat for v1
+ * schema consumers and will be removed in v2.
+ */
 export type AdcSourceKind =
   | 'env'
   | 'default'
+  /** @deprecated v0.6+: never produced; kept in type for v1 schema compatibility. Removed in v2. */
   | 'cloudsdk-config'
   | 'metadata-server'
   | 'unknown';
@@ -60,7 +75,23 @@ export interface AdcSourceMeta {
 export interface AdcSourceReport {
   resolved: AdcSourceKind;
   envCredentials: AdcSourceFileInfo | null;
+  /**
+   * The ADC default location after resolving `CLOUDSDK_CONFIG`. Always present
+   * in v0.6+. When `CLOUDSDK_CONFIG` is set, this points under that directory;
+   * otherwise it points at `$HOME/.config/gcloud/...` (or the Windows
+   * equivalent under `%APPDATA%`).
+   */
+  effectiveDefault: AdcSourceFileInfo;
+  /**
+   * @deprecated v0.6: alias of `effectiveDefault` (same object reference) for
+   * v0.5 consumers that read `report.adcSource.defaultLocation.path`. Will be
+   * removed in v1.0.
+   */
   defaultLocation: AdcSourceFileInfo;
+  /**
+   * @deprecated v0.6: never populated. The dir-level information now lives
+   * under the top-level `gcloudConfigDir`. Will be removed in v1.0.
+   */
   cloudsdkConfig?: AdcSourceFileInfo | null;
   metadataServer: {
     envHeuristic: 'k_service' | 'gae_application' | 'kubernetes' | 'cloud_build' | 'none';
@@ -71,6 +102,48 @@ export interface AdcSourceReport {
   meta: AdcSourceMeta | null;
   account?: string;
   accountError?: string;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// gcloud config directory resolution types (T16)
+// ───────────────────────────────────────────────────────────────────────────
+
+export type GcloudConfigDirSource = 'env-cloudsdk-config' | 'default';
+
+export interface GcloudConfigDirEntry {
+  state: 'exists' | 'missing' | 'unreadable';
+  /**
+   * For directory entries with `state==='exists'`, this is the best-effort
+   * count of entries within the directory. Omitted for files, for missing or
+   * unreadable directories, and when the count cannot be obtained.
+   */
+  entries?: number;
+}
+
+export interface GcloudConfigDirReport {
+  /** Absolute path of the resolved gcloud config directory. */
+  resolved: string;
+  source: GcloudConfigDirSource;
+  presence: {
+    activeConfig: GcloudConfigDirEntry;
+    configurations: GcloudConfigDirEntry;
+    credentialsDb: GcloudConfigDirEntry;
+    accessTokensDb: GcloudConfigDirEntry;
+    applicationDefaultCredentialsJson: GcloudConfigDirEntry;
+    legacyCredentials: GcloudConfigDirEntry;
+  };
+  /** Set when `source === 'env-cloudsdk-config'`; explains the override semantics. */
+  note?: string;
+}
+
+export interface ResolveGcloudConfigDirDeps {
+  statAsync?: (
+    path: string,
+  ) => Promise<{ size: number; mtimeMs: number; isFile: boolean; isDirectory: boolean } | null>;
+  readDirCount?: (path: string) => Promise<number | null>;
+  homeDir?: () => string;
+  appDataDir?: () => string | undefined;
+  platform?: NodeJS.Platform;
 }
 
 export interface ResolveAdcSourceDeps {
@@ -114,6 +187,7 @@ export interface DoctorOptions {
     env: DoctorEnv,
     opts: ResolveAdcSourceOptions,
   ) => Promise<AdcSourceReport>;
+  gcloudConfigDirResolver?: (env: DoctorEnv) => Promise<GcloudConfigDirReport>;
 }
 
 export type InstallMethod = 'claude-plugin' | 'npm-global' | 'source' | 'unknown';
@@ -137,7 +211,8 @@ export type DoctorWarningCode =
   | 'API_KEY_FORMAT_SUSPECT'
   | 'ADC_QUOTA_PROJECT_MISMATCH'
   | 'ADC_FILE_MISSING'
-  | 'ADC_TYPE_UNUSUAL';
+  | 'ADC_TYPE_UNUSUAL'
+  | 'CLOUDSDK_CONFIG_OVERRIDE';
 
 export interface DoctorWarning {
   code: DoctorWarningCode;
@@ -180,6 +255,7 @@ export interface DoctorReport {
     note: 'requires GOOGLE_CLOUD_LOCATION=global on the ADC path';
   };
   adcSource: AdcSourceReport;
+  gcloudConfigDir: GcloudConfigDirReport;
   warnings: DoctorWarning[];
   fatal: boolean;
   verbose?: {
@@ -392,6 +468,18 @@ export function warnAdcTypeUnusual(ctx: WarnCtx): DoctorWarning | null {
   };
 }
 
+export function warnCloudsdkConfigOverride(ctx: WarnCtx): DoctorWarning | null {
+  const v = ctx.env.CLOUDSDK_CONFIG;
+  if (!v || v.length === 0) return null;
+  return {
+    code: 'CLOUDSDK_CONFIG_OVERRIDE',
+    severity: 'info',
+    message:
+      `gcloud config directory is overridden to \`${v}\` via CLOUDSDK_CONFIG; ` +
+      `gcloud auth / configurations / ADC are isolated from $HOME/.config/gcloud.`,
+  };
+}
+
 export function computeWarnings(ctx: WarnCtx): DoctorWarning[] {
   const fns = [
     warnNoAuth,
@@ -404,6 +492,7 @@ export function computeWarnings(ctx: WarnCtx): DoctorWarning[] {
     warnAdcQuotaProjectMismatch,
     warnAdcFileMissing,
     warnAdcTypeUnusual,
+    warnCloudsdkConfigOverride,
   ];
   return fns
     .map((f) => f(ctx))
@@ -454,6 +543,32 @@ async function defaultStatAsync(
   try {
     const s = await fsStat(path);
     return { size: s.size, mtimeMs: s.mtimeMs, isFile: s.isFile() };
+  } catch {
+    return null;
+  }
+}
+
+async function defaultDirStatAsync(
+  path: string,
+): Promise<{ size: number; mtimeMs: number; isFile: boolean; isDirectory: boolean } | null> {
+  // Distinct from `defaultStatAsync` because the gcloud config dir resolver
+  // needs to distinguish files from directories; an EACCES on stat must
+  // bubble out (so the resolver can mark the entry `unreadable`) rather than
+  // be swallowed as `null` (which would mean `missing`).
+  const s = await fsStat(path).catch((err: NodeJS.ErrnoException) => {
+    if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+      return null;
+    }
+    throw err;
+  });
+  if (!s) return null;
+  return { size: s.size, mtimeMs: s.mtimeMs, isFile: s.isFile(), isDirectory: s.isDirectory() };
+}
+
+async function defaultReadDirCount(path: string): Promise<number | null> {
+  try {
+    const entries = await fsReaddir(path);
+    return entries.length;
   } catch {
     return null;
   }
@@ -550,19 +665,19 @@ export async function resolveAdcSource(
     ? await fileInfo(envPath, stat)
     : null;
 
+  // T16: align with google-auth-library — when CLOUDSDK_CONFIG is set, the OS
+  // default $HOME/.config/gcloud is NOT consulted. The "effective default" is
+  // a single path: $CLOUDSDK_CONFIG/application_default_credentials.json when
+  // that env is set (and non-empty), else the OS default.
   const cloudsdkConfigDir = env.CLOUDSDK_CONFIG;
-  const cloudsdkConfig: AdcSourceFileInfo | null = cloudsdkConfigDir
-    ? await fileInfo(
-        `${cloudsdkConfigDir}/application_default_credentials.json`,
-        stat,
-      )
-    : null;
-
-  const defaultPath =
-    platform === 'win32'
+  const useCloudsdkOverride =
+    typeof cloudsdkConfigDir === 'string' && cloudsdkConfigDir.length > 0;
+  const effectivePath = useCloudsdkOverride
+    ? `${cloudsdkConfigDir}/application_default_credentials.json`
+    : platform === 'win32'
       ? `${appData ?? ''}\\gcloud\\application_default_credentials.json`
       : `${home}/.config/gcloud/application_default_credentials.json`;
-  const defaultLocation = await fileInfo(defaultPath, stat);
+  const effectiveDefault = await fileInfo(effectivePath, stat);
 
   const envHeuristic: AdcSourceReport['metadataServer']['envHeuristic'] = env.K_SERVICE
     ? 'k_service'
@@ -576,23 +691,19 @@ export async function resolveAdcSource(
 
   const resolved: AdcSourceKind = envCredentials?.exists
     ? 'env'
-    : cloudsdkConfig?.exists
-      ? 'cloudsdk-config'
-      : defaultLocation.exists
-        ? 'default'
-        : envHeuristic !== 'none'
-          ? 'metadata-server'
-          : 'unknown';
+    : effectiveDefault.exists
+      ? 'default'
+      : envHeuristic !== 'none'
+        ? 'metadata-server'
+        : 'unknown';
 
   let meta: AdcSourceMeta | null = null;
   const picked: AdcSourceFileInfo | null =
     resolved === 'env'
       ? envCredentials
-      : resolved === 'cloudsdk-config'
-        ? cloudsdkConfig
-        : resolved === 'default'
-          ? defaultLocation
-          : null;
+      : resolved === 'default'
+        ? effectiveDefault
+        : null;
   if (picked?.exists && (picked.size ?? Infinity) <= maxBytes) {
     const parsed = await readJson(picked.path, maxBytes);
     if (parsed !== null) meta = parseAdcMeta(parsed);
@@ -634,12 +745,114 @@ export async function resolveAdcSource(
   return {
     resolved,
     envCredentials,
-    defaultLocation,
-    ...(cloudsdkConfigDir ? { cloudsdkConfig } : {}),
+    effectiveDefault,
+    defaultLocation: effectiveDefault,
     metadataServer,
     meta,
     ...(account !== undefined ? { account } : {}),
     ...(accountError !== undefined ? { accountError } : {}),
+  };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Gcloud config dir resolution (T16)
+// ───────────────────────────────────────────────────────────────────────────
+
+const GCLOUD_CONFIG_DIR_ENTRIES: ReadonlyArray<{
+  key: keyof GcloudConfigDirReport['presence'];
+  basename: string;
+  kind: 'file' | 'dir';
+}> = [
+  { key: 'activeConfig', basename: 'active_config', kind: 'file' },
+  { key: 'configurations', basename: 'configurations', kind: 'dir' },
+  { key: 'credentialsDb', basename: 'credentials.db', kind: 'file' },
+  { key: 'accessTokensDb', basename: 'access_tokens.db', kind: 'file' },
+  {
+    key: 'applicationDefaultCredentialsJson',
+    basename: 'application_default_credentials.json',
+    kind: 'file',
+  },
+  { key: 'legacyCredentials', basename: 'legacy_credentials', kind: 'dir' },
+];
+
+const CLOUDSDK_CONFIG_OVERRIDE_NOTE =
+  'overrides $HOME/.config/gcloud entirely; gcloud auth list / configurations / ADC are isolated from the OS default';
+
+function joinPath(base: string, child: string, platform: NodeJS.Platform): string {
+  // The choice of separator must match the OS we're emulating in tests; this
+  // mirrors what `resolveAdcSource` does so the two reports stay consistent.
+  return platform === 'win32' ? `${base}\\${child}` : `${base}/${child}`;
+}
+
+export async function resolveGcloudConfigDir(
+  env: DoctorEnv,
+  deps: ResolveGcloudConfigDirDeps = {},
+): Promise<GcloudConfigDirReport> {
+  const stat = deps.statAsync ?? defaultDirStatAsync;
+  const readDirCount = deps.readDirCount ?? defaultReadDirCount;
+  const platform = deps.platform ?? process.platform;
+  const home = (deps.homeDir ?? (() => os.homedir()))();
+  const appData = (deps.appDataDir ?? (() => process.env.APPDATA))();
+
+  const cloudsdkDir = env.CLOUDSDK_CONFIG;
+  const useOverride = typeof cloudsdkDir === 'string' && cloudsdkDir.length > 0;
+
+  let resolved: string;
+  let source: GcloudConfigDirSource;
+  let note: string | undefined;
+  if (useOverride) {
+    resolved = cloudsdkDir as string;
+    source = 'env-cloudsdk-config';
+    note = CLOUDSDK_CONFIG_OVERRIDE_NOTE;
+  } else if (platform === 'win32') {
+    resolved = `${appData ?? ''}\\gcloud`;
+    source = 'default';
+  } else {
+    resolved = `${home}/.config/gcloud`;
+    source = 'default';
+  }
+
+  const presence = {
+    activeConfig: { state: 'missing' } as GcloudConfigDirEntry,
+    configurations: { state: 'missing' } as GcloudConfigDirEntry,
+    credentialsDb: { state: 'missing' } as GcloudConfigDirEntry,
+    accessTokensDb: { state: 'missing' } as GcloudConfigDirEntry,
+    applicationDefaultCredentialsJson: { state: 'missing' } as GcloudConfigDirEntry,
+    legacyCredentials: { state: 'missing' } as GcloudConfigDirEntry,
+  };
+
+  for (const entry of GCLOUD_CONFIG_DIR_ENTRIES) {
+    const childPath = joinPath(resolved, entry.basename, platform);
+    let s: Awaited<ReturnType<typeof stat>>;
+    try {
+      s = await stat(childPath);
+    } catch {
+      // EACCES or any other stat failure → unreadable
+      presence[entry.key] = { state: 'unreadable' };
+      continue;
+    }
+    if (s === null) {
+      presence[entry.key] = { state: 'missing' };
+      continue;
+    }
+    if (entry.kind === 'file') {
+      presence[entry.key] = s.isFile ? { state: 'exists' } : { state: 'unreadable' };
+    } else {
+      if (!s.isDirectory) {
+        presence[entry.key] = { state: 'unreadable' };
+      } else {
+        const count = await readDirCount(childPath).catch(() => null);
+        presence[entry.key] =
+          count === null ? { state: 'exists' } : { state: 'exists', entries: count };
+      }
+    }
+  }
+
+  return {
+    resolved,
+    source,
+    presence,
+    ...(note !== undefined ? { note } : {}),
   };
 }
 
@@ -771,6 +984,9 @@ export async function buildDoctorReport(
   const adcResolver = opts.adcSourceResolver ?? resolveAdcSource;
   const adcSource = await adcResolver(env, { probeMetadataServer });
 
+  const gcloudConfigDirFn = opts.gcloudConfigDirResolver ?? resolveGcloudConfigDir;
+  const gcloudConfigDir = await gcloudConfigDirFn(env);
+
   const warnings = computeWarnings({
     env,
     apiKey,
@@ -805,6 +1021,7 @@ export async function buildDoctorReport(
       note: 'requires GOOGLE_CLOUD_LOCATION=global on the ADC path',
     },
     adcSource,
+    gcloudConfigDir,
     warnings,
     fatal,
   };
@@ -871,6 +1088,25 @@ function renderMetadataServer(ms: AdcSourceReport['metadataServer']): string {
   return `not probed (heuristic: ${ms.envHeuristic})`;
 }
 
+function renderResolvedKind(kind: AdcSourceKind): string {
+  // T16 §1.1 / §6.3: when kind === 'default', surface "(effective default)" in
+  // text only. JSON keeps the raw 'default' literal so that v0.5 consumers
+  // doing `if (kind === 'default')` continue to work.
+  return kind === 'default' ? 'default (effective default)' : kind;
+}
+
+function renderGcloudConfigDirSourceLabel(source: GcloudConfigDirSource): string {
+  return source === 'env-cloudsdk-config' ? 'env CLOUDSDK_CONFIG' : 'default ($HOME/.config/gcloud)';
+}
+
+function renderPresenceState(e: GcloudConfigDirEntry): string {
+  if (e.state === 'exists' && e.entries !== undefined) {
+    const word = e.entries === 1 ? 'entry' : 'entries';
+    return `exists (${e.entries} ${word})`;
+  }
+  return e.state;
+}
+
 export function renderDoctorText(report: DoctorReport): string {
   const lines: string[] = [];
   lines.push('nanobanana-adc doctor');
@@ -934,10 +1170,32 @@ export function renderDoctorText(report: DoctorReport): string {
   );
   lines.push('');
 
+  // Gcloud config dir (T16: directory-level state)
+  const g = report.gcloudConfigDir;
+  lines.push('Gcloud config dir');
+  lines.push(kv('resolved', g.resolved));
+  lines.push(kv('source', renderGcloudConfigDirSourceLabel(g.source)));
+  lines.push('  presence:');
+  lines.push(kv('  active_config', renderPresenceState(g.presence.activeConfig)));
+  lines.push(kv('  configurations/', renderPresenceState(g.presence.configurations)));
+  lines.push(kv('  credentials.db', renderPresenceState(g.presence.credentialsDb)));
+  lines.push(kv('  access_tokens.db', renderPresenceState(g.presence.accessTokensDb)));
+  lines.push(
+    kv(
+      '  application_default_credentials.json',
+      renderPresenceState(g.presence.applicationDefaultCredentialsJson),
+    ),
+  );
+  lines.push(kv('  legacy_credentials/', renderPresenceState(g.presence.legacyCredentials)));
+  if (g.note !== undefined) {
+    lines.push(kv('note', g.note));
+  }
+  lines.push('');
+
   // ADC source
   const a = report.adcSource;
   lines.push('ADC source');
-  lines.push(kv('resolved', a.resolved));
+  lines.push(kv('resolved', renderResolvedKind(a.resolved)));
   if (a.envCredentials === null) {
     lines.push(kv('env GOOGLE_APPLICATION_CREDENTIALS', undefined));
   } else {
@@ -950,21 +1208,8 @@ export function renderDoctorText(report: DoctorReport): string {
     );
   }
   lines.push(
-    kv('default location', a.defaultLocation.path, renderFileExtras(a.defaultLocation)),
+    kv('effective default', a.effectiveDefault.path, renderFileExtras(a.effectiveDefault)),
   );
-  if (a.cloudsdkConfig === undefined) {
-    lines.push(kv('CLOUDSDK_CONFIG path', undefined));
-  } else if (a.cloudsdkConfig === null) {
-    lines.push(kv('CLOUDSDK_CONFIG path', undefined));
-  } else {
-    lines.push(
-      kv(
-        'CLOUDSDK_CONFIG path',
-        a.cloudsdkConfig.path,
-        renderFileExtras(a.cloudsdkConfig),
-      ),
-    );
-  }
   lines.push(kv('metadata server', renderMetadataServer(a.metadataServer)));
   if (a.meta === null) {
     lines.push(kv('meta', '(not available — file unreadable or not parsed)'));

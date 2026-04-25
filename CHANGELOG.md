@@ -3,6 +3,69 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-04-26
+
+### Added
+- `Gcloud config dir` section in `nanobanana-adc doctor` text output and a
+  corresponding `gcloudConfigDir` object in JSON output. Surfaces the resolved
+  gcloud config directory (`$CLOUDSDK_CONFIG` or `$HOME/.config/gcloud`),
+  its source (`env-cloudsdk-config` / `default`), and best-effort presence of
+  six well-known files / dirs (`active_config`, `configurations/`,
+  `credentials.db`, `access_tokens.db`,
+  `application_default_credentials.json`, `legacy_credentials/`). Read
+  failures surface as `unreadable` rather than crashing the doctor.
+- `CLOUDSDK_CONFIG_OVERRIDE` warning (severity `info`): fires when
+  `CLOUDSDK_CONFIG` is set, indicating that the entire gcloud config dir
+  (auth list, configurations, ADC) is isolated from the OS default.
+- `adcSource.effectiveDefault`: the single ADC default location after
+  resolving `CLOUDSDK_CONFIG` overrides. The path is
+  `$CLOUDSDK_CONFIG/application_default_credentials.json` when that env is
+  set and non-empty; otherwise the OS default
+  (`$HOME/.config/gcloud/application_default_credentials.json` on Unix or the
+  `%APPDATA%\gcloud\...` equivalent on Windows).
+
+### Changed
+- `resolveAdcSource` algorithm aligned with `google-auth-library` (and
+  `python-genai` / other GCP SDKs). When `CLOUDSDK_CONFIG` is set, the OS
+  default `$HOME/.config/gcloud/application_default_credentials.json` is no
+  longer consulted — only `$CLOUDSDK_CONFIG/application_default_credentials.json`
+  is. Resolution order is now: `env` (`GOOGLE_APPLICATION_CREDENTIALS`) →
+  `default` (effective default per `CLOUDSDK_CONFIG`) → `metadata-server`
+  (heuristic) → `unknown`.
+- `adcSource.resolved === 'default'` semantics: now means "ADC found at the
+  *effective* default location" (CLOUDSDK_CONFIG-aware). The actual path is
+  in `adcSource.effectiveDefault.path` (and the alias
+  `adcSource.defaultLocation.path`).
+- `ADC source` text section simplified: the `default location` and
+  `CLOUDSDK_CONFIG path` rows are replaced by a single `effective default`
+  row. The `resolved:` row reads `default (effective default)` when the kind
+  is `default`, so the text output makes the new semantics explicit while the
+  JSON `adcSource.resolved` stays the literal `'default'` for backward
+  compatibility.
+
+### Deprecated
+- `adcSource.resolved === 'cloudsdk-config'` is no longer produced (the kind
+  literal remains in the TypeScript type for v1 schema compatibility and will
+  be removed in v2).
+- `adcSource.cloudsdkConfig` is no longer populated in JSON output (always
+  omitted). The dir-level information now lives under the new top-level
+  `gcloudConfigDir`. Will be removed in v1.0.
+- `adcSource.defaultLocation` is kept as an alias of `effectiveDefault` for
+  v0.6.x consumers (same object reference). Will be removed in v1.0; new
+  consumers should read `effectiveDefault`.
+
+### Notes
+- Schema name remains `nanobanana-adc-doctor/v1`. No fields are deleted in
+  v0.6.
+- Secret-handling guarantees from v0.5 (T15) are preserved: `parseAdcMeta`
+  continues to copy only safe fields; `private_key` / `private_key_id` /
+  `refresh_token` are never surfaced. The `LEAK_CANARY_*` regression test in
+  `doctor.test.ts` is extended (`#84`) to cover `CLOUDSDK_CONFIG`-overridden
+  ADC paths.
+- `doctor` remains exit-0 in all error modes added by this release: a missing
+  `CLOUDSDK_CONFIG` directory, an `EACCES` on stat, or `gcloud` absent on
+  `PATH` all keep the process exit code at 0.
+
 ## [0.5.0] - 2026-04-26
 
 ### Added
