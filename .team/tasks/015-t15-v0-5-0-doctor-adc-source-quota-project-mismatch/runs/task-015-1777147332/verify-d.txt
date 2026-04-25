@@ -1,0 +1,27 @@
+--- jq .adcSource ---
+{
+  "resolved": "default",
+  "envCredentials": null,
+  "defaultLocation": {
+    "path": "/Users/yamamoto/.config/gcloud/application_default_credentials.json",
+    "exists": true,
+    "size": 388,
+    "mtimeMs": 1777149457420.5571
+  },
+  "metadataServer": {
+    "envHeuristic": "none",
+    "probed": false
+  },
+  "meta": {
+    "type": "authorized_user",
+    "quotaProjectId": "kdg-context",
+    "clientId": "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com"
+  },
+  "account": "rr.yamamoto@gmail.com"
+}
+--- check resolved is one of the 5 valid values ---
+resolved=default
+true
+inside-check exit=0
+true
+IN-check exit=0

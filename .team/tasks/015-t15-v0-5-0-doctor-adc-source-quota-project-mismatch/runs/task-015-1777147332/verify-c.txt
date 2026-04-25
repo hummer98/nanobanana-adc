@@ -1,0 +1,44 @@
+nanobanana-adc doctor
+
+CLI
+  path:                             /Users/yamamoto/git/nanobanana-adc/.worktrees/task-015-1777147332/dist/cli.js
+  version:                          0.5.0
+  install:                          source
+
+Auth route
+  selected:                         adc   (GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION set; ADC path)
+
+API key
+  present:                          no
+
+ADC
+  probed:                           yes
+  status:                           fail
+  error:                            The file at /tmp/nonexistent.json does not exist, or it is not a file. ENOENT: no such file or directory, lstat '/private/tmp/nonexistent.json'
+
+GCP env
+  GOOGLE_CLOUD_PROJECT:             gen-lang-client-0451899685
+  GOOGLE_CLOUD_LOCATION:            global
+  GOOGLE_GENAI_USE_VERTEXAI:        true
+  GOOGLE_APPLICATION_CREDENTIALS:   /tmp/nonexistent.json   ⚠ file not found
+
+ADC source
+  resolved:                         default
+  env GOOGLE_APPLICATION_CREDENTIALS: /tmp/nonexistent.json   (not found)
+  default location:                 /Users/yamamoto/.config/gcloud/application_default_credentials.json   (exists, 388 B, 2026-04-25T20:37:15.651Z)
+  CLOUDSDK_CONFIG path:             (unset)
+  metadata server:                  not probed (no GCE/Cloud Run env detected)
+  type:                             authorized_user
+  quotaProjectId:                   kdg-context
+  clientId:                         764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com
+  account:                          rr.yamamoto@gmail.com
+
+Model
+  default:                          gemini-3-pro-image-preview
+  note:                             requires GOOGLE_CLOUD_LOCATION=global on the ADC path
+
+Warnings (4)
+  ⚠ [NO_AUTH_AVAILABLE] No usable auth route. Either set GEMINI_API_KEY or configure ADC (gcloud auth application-default login + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION=global).
+  ⚠ [CREDS_FILE_MISSING] GOOGLE_APPLICATION_CREDENTIALS=/tmp/nonexistent.json, but file does not exist.
+  ⚠ [ADC_QUOTA_PROJECT_MISMATCH] ADC quota_project_id (kdg-context) differs from GOOGLE_CLOUD_PROJECT (gen-lang-client-0451899685). Run `gcloud auth application-default set-quota-project gen-lang-client-0451899685` to align them so billing and operations target the same project.
+  ⚠ [ADC_FILE_MISSING] GOOGLE_APPLICATION_CREDENTIALS=/tmp/nonexistent.json, but the file does not exist.

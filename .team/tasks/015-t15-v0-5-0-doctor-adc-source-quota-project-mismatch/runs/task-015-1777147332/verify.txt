@@ -1,0 +1,140 @@
+T15 v0.5.0 — `nanobanana-adc doctor` 動作確認 4 パターン
+
+実行コマンド: `node dist/cli.js doctor [...]` (worktree 内で `npm run build` 済み)
+実行日時: 2026-04-26
+実機環境:
+  - GOOGLE_CLOUD_PROJECT=gen-lang-client-0451899685
+  - GOOGLE_CLOUD_LOCATION=global
+  - GOOGLE_GENAI_USE_VERTEXAI=true
+  - ADC: ~/.config/gcloud/application_default_credentials.json (quota_project_id=kdg-context, type=authorized_user)
+  - gcloud: installed (account=rr.yamamoto@gmail.com)
+
+================================================================================
+(a) 現在環境 → ADC_QUOTA_PROJECT_MISMATCH 発火
+================================================================================
+
+$ node dist/cli.js doctor
+
+[完全なログは verify-a.txt 参照]
+
+抜粋:
+  ADC source
+    resolved:                         default
+    default location:                 /Users/yamamoto/.config/gcloud/application_default_credentials.json   (exists, 388 B, 2026-04-25T20:37:04.473Z)
+    type:                             authorized_user
+    quotaProjectId:                   kdg-context
+    clientId:                         764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com
+    account:                          rr.yamamoto@gmail.com
+
+  Warnings (1)
+    ⚠ [ADC_QUOTA_PROJECT_MISMATCH] ADC quota_project_id (kdg-context) differs from
+      GOOGLE_CLOUD_PROJECT (gen-lang-client-0451899685). Run
+      `gcloud auth application-default set-quota-project gen-lang-client-0451899685`
+      to align them so billing and operations target the same project.
+
+結果: ✅ 期待通り `ADC_QUOTA_PROJECT_MISMATCH` 単独発火 / `ADC_FILE_MISSING` /
+`ADC_TYPE_UNUSUAL` は発火しない。
+
+注: 実機でこの run を 2 回繰り返した際、最初のラン直後に `gcloud auth list`
+コマンド経由で ADC ファイルが一瞬書き換わるレースが観測された (file が 388B
+→ 351B → 388B と振動)。これは gcloud CLI 側の挙動で本実装の問題ではない。
+2 回目以降は安定している。
+
+================================================================================
+(b) mismatch 解消後 → mock test で代替
+================================================================================
+
+実機 `gcloud auth application-default set-quota-project gen-lang-client-0451899685`
+は ADC 状態を破壊的に変えるため、計画通り mock 代替で確認:
+
+src/doctor.test.ts test 53:
+> ADC_QUOTA_PROJECT_MISMATCH does NOT fire when quotaProjectId === GOOGLE_CLOUD_PROJECT
+
+```
+const r = await buildDoctorReport(env, baseOpts({
+  adcSourceResolver: async () => adcSourceStub({
+    resolved: 'default',
+    meta: { type: 'authorized_user', quotaProjectId: 'p' },
+  }),
+}));
+const codes = r.warnings.map((w) => w.code);
+assert.equal(codes.includes('ADC_QUOTA_PROJECT_MISMATCH'), false);
+```
+
+結果: ✅ test 53 が green (`pass 105`).
+
+================================================================================
+(c) GOOGLE_APPLICATION_CREDENTIALS=/tmp/nonexistent.json → ADC_FILE_MISSING
+================================================================================
+
+$ GOOGLE_APPLICATION_CREDENTIALS=/tmp/nonexistent.json node dist/cli.js doctor
+
+[完全なログは verify-c.txt 参照]
+
+抜粋:
+  ADC source
+    resolved:                         default
+    env GOOGLE_APPLICATION_CREDENTIALS: /tmp/nonexistent.json   (not found)
+    ...
+
+  Warnings (4)
+    ⚠ [NO_AUTH_AVAILABLE] ...
+    ⚠ [CREDS_FILE_MISSING] GOOGLE_APPLICATION_CREDENTIALS=/tmp/nonexistent.json, but file does not exist.
+    ⚠ [ADC_QUOTA_PROJECT_MISMATCH] ...
+    ⚠ [ADC_FILE_MISSING] GOOGLE_APPLICATION_CREDENTIALS=/tmp/nonexistent.json, but the file does not exist.
+
+結果: ✅ `ADC_FILE_MISSING` と `CREDS_FILE_MISSING` が並列発火 (後方互換)。
+
+================================================================================
+(d) doctor --json | jq .adcSource → 構造化された adcSource (camelCase)
+================================================================================
+
+$ node dist/cli.js doctor --json | jq .adcSource
+
+[完全なログは verify-d.txt 参照]
+
+抜粋:
+  {
+    "resolved": "default",
+    "envCredentials": null,
+    "defaultLocation": {
+      "path": "/Users/yamamoto/.config/gcloud/application_default_credentials.json",
+      "exists": true,
+      "size": 388,
+      "mtimeMs": 1777149457420.5571
+    },
+    "metadataServer": { "envHeuristic": "none", "probed": false },
+    "meta": {
+      "type": "authorized_user",
+      "quotaProjectId": "kdg-context",
+      "clientId": "..."
+    },
+    "account": "rr.yamamoto@gmail.com"
+  }
+
+検証コマンド (plan の `inside(...)` は jq の型不整合エラーになるため、
+等価な `IN(...)` および `[.] | inside(...)` を併用):
+
+$ node dist/cli.js doctor --json | jq -e '[.adcSource.resolved] | inside(["env","default","cloudsdk-config","metadata-server","unknown"])'
+true
+exit=0
+
+$ node dist/cli.js doctor --json | jq -e '.adcSource.resolved | IN("env","default","cloudsdk-config","metadata-server","unknown")'
+true
+exit=0
+
+結果: ✅ `adcSource` は camelCase。`resolved` は 5 種列挙のいずれかに含まれる。
+JSON として valid (jq exit 0)。
+
+================================================================================
+追加: --probe-metadata-server flag (smoke test)
+================================================================================
+
+$ node dist/cli.js doctor --probe-metadata-server --json | jq .adcSource.metadataServer
+
+期待: probed: true / probeOk: false (with error) — 169.254.169.254 はローカル
+環境では到達不能なため、probeOk=false が期待値。実機実行時に network が
+metadata-server に届かない場合、約 300ms 後に AbortController が発火する。
+
+ローカルマシン上では 5 秒の TCP-syn timeout になることがあるため、本 PR では
+スモーク確認のみ。実環境 (GCE / Cloud Run) での挙動はユーザ確認に委ねる。
