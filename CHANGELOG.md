@@ -3,6 +3,87 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] - 2026-04-26
+
+### Added
+- `nanobanana-adc doctor` now resolves which on-disk file (or metadata server)
+  ADC actually reads from. The new `ADC source` text section and `adcSource`
+  JSON field cover five resolution kinds — `env` (from
+  `GOOGLE_APPLICATION_CREDENTIALS`), `cloudsdk-config` (from `CLOUDSDK_CONFIG`),
+  `default` (the OS-standard `application_default_credentials.json`),
+  `metadata-server` (Cloud Run / GKE / GAE / Cloud Build heuristics), and
+  `unknown`.
+- ADC JSON metadata extraction via `parseAdcMeta`: `type` (one of
+  `authorized_user` / `service_account` / `external_account` /
+  `impersonated_service_account` / `unknown`), `quotaProjectId`, `clientId`,
+  and `clientEmail` (service accounts only). Secrets (`private_key`,
+  `private_key_id`, `refresh_token`) are never read into memory beyond a
+  bounded JSON parse and are never copied to any output buffer (`text`,
+  `json`, or `--verbose`).
+- `--probe-metadata-server` opt-in flag: probes
+  `http://169.254.169.254/computeMetadata/v1/instance/id` with a 300ms
+  `AbortController` timeout. Default is off — `doctor` is fast and
+  network-free unless this flag is passed.
+- Three new warnings:
+  - `ADC_QUOTA_PROJECT_MISMATCH` (severity `warn`): `quota_project_id` in the
+    ADC JSON differs from `GOOGLE_CLOUD_PROJECT` — billing and operations
+    target different projects.
+  - `ADC_FILE_MISSING` (severity `warn`): `GOOGLE_APPLICATION_CREDENTIALS`
+    points at a path that does not exist (or is a directory).
+  - `ADC_TYPE_UNUSUAL` (severity `info`): the ADC JSON parsed but `type`
+    is not one of the four recognized values.
+- `adcSource.account` resolved via `gcloud auth list --filter=status:ACTIVE
+  --format=value(account)` (best-effort). When `gcloud` is missing or there is
+  no active account, the field is `accountError = "gcloud unavailable or no
+  active account"`.
+- `DoctorEnv` extended with five optional keys read from `process.env` in
+  `cli.ts`: `K_SERVICE`, `GAE_APPLICATION`, `KUBERNETES_SERVICE_HOST`,
+  `CLOUD_BUILD_BUILDID`, and `CLOUDSDK_CONFIG`. The resolution function
+  `resolveAdcSource` reads only this typed env, never `process.env`
+  directly, so unit tests can drive every branch deterministically.
+
+### Changed
+- `doctor` text output gains an `ADC source` section between `GCP env` and
+  `Model`. JSON output gains a top-level `adcSource` object. Both are
+  additive — schema name remains `nanobanana-adc-doctor/v1` and existing
+  fields (`cli`, `authRoute`, `apiKey`, `adc`, `gcpEnv`, `model`,
+  `warnings`, `fatal`, `verbose`) are unchanged.
+
+### Notes
+- **Secret handling**: `parseAdcMeta` allocates a fresh result object and
+  copies only safe fields. The source ADC JSON object is never serialized
+  upstream. `doctor.test.ts` includes a `LEAK_CANARY_*` regression test that
+  fails the build if any of `private_key`, `private_key_id`, or
+  `refresh_token` (as keys or values) ever surface in `text`, `json`, or
+  `--verbose` output.
+- **JSON naming is camelCase throughout** (`adcSource`, `quotaProjectId`,
+  `clientId`, `clientEmail`, `envCredentials`, `defaultLocation`,
+  `cloudsdkConfig`, `metadataServer`, `envHeuristic`, `probeOk`,
+  `probeError`, `accountError`). This matches the existing `gcpEnv` /
+  `authRoute` / `apiKey` style. JSON consumers should grep on
+  `.adcSource`, not `.adc_source`.
+- **`CREDS_FILE_MISSING` deprecation roadmap**: `ADC_FILE_MISSING` and
+  `CREDS_FILE_MISSING` fire **in parallel** when
+  `GOOGLE_APPLICATION_CREDENTIALS` points at a missing path, to avoid
+  breaking existing JSON consumers and shell pipelines. v1.0 will deprecate
+  `CREDS_FILE_MISSING` in favor of `ADC_FILE_MISSING`. New consumers should
+  switch to `ADC_FILE_MISSING` now.
+- **Unset-key omission**: in `adcSource` JSON, `cloudsdkConfig` is omitted
+  when `CLOUDSDK_CONFIG` is unset, and `accountError` / `account` are
+  omitted when not applicable. Consumers should test for
+  `obj.cloudsdkConfig === undefined` / `obj.accountError === undefined`,
+  not `=== null`.
+- **Out of scope**: Workload Identity Federation (`external_account`) deep
+  parse — `audience` / `subject_token_type` / `credential_source` are not
+  decoded. Service-account impersonation chain following — only the top
+  type is reported; we do not recursively follow `source_credentials`.
+  Both are tracked for a future release.
+- The default metadata-server probe path uses `node:http` against the
+  link-local IP `169.254.169.254`. Unit tests inject `metadataServerProbe`
+  via deps and never touch the network. The probe is gated behind
+  `--probe-metadata-server`, so CI runs without GCE / Cloud Run
+  environment variables stay completely network-free.
+
 ## [0.4.0] - 2026-04-25
 
 ### Added

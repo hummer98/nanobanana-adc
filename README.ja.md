@@ -129,21 +129,21 @@ $ nanobanana-adc doctor
 nanobanana-adc doctor
 
 CLI
-  path:                           /usr/local/lib/node_modules/nanobanana-adc/dist/cli.js
-  version:                        0.4.0
-  install:                        npm-global
+  path:                             /usr/local/lib/node_modules/nanobanana-adc/dist/cli.js
+  version:                          0.5.0
+  install:                          npm-global
 
 Auth route
-  selected:                       adc   (GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION set; ADC path)
+  selected:                         adc   (GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION set; ADC path)
 
 API key
-  present:                        no
+  present:                          no
 
 ADC
-  probed:                         yes
-  status:                         ok
-  account:                        user@example.com
-  project:                        my-gcp-proj
+  probed:                           yes
+  status:                           ok
+  account:                          user@example.com
+  project:                          my-gcp-proj
 
 GCP env
   GOOGLE_CLOUD_PROJECT:             my-gcp-proj
@@ -151,9 +151,20 @@ GCP env
   GOOGLE_GENAI_USE_VERTEXAI:        true
   GOOGLE_APPLICATION_CREDENTIALS:   (unset)
 
+ADC source
+  resolved:                         default
+  env GOOGLE_APPLICATION_CREDENTIALS: (unset)
+  default location:                 /home/user/.config/gcloud/application_default_credentials.json   (exists, 2400 B, 2026-04-26T07:00:00.000Z)
+  CLOUDSDK_CONFIG path:             (unset)
+  metadata server:                  not probed (no GCE/Cloud Run env detected)
+  type:                             authorized_user
+  quotaProjectId:                   my-gcp-proj
+  clientId:                         32555940559.apps.googleusercontent.com
+  account:                          user@example.com
+
 Model
-  default:                        gemini-3-pro-image-preview
-  note:                           requires GOOGLE_CLOUD_LOCATION=global on the ADC path
+  default:                          gemini-3-pro-image-preview
+  note:                             requires GOOGLE_CLOUD_LOCATION=global on the ADC path
 
 Warnings (0)
   (none)
@@ -162,19 +173,27 @@ Warnings (0)
 主な使い方:
 
 ```bash
-# 機械可読 JSON（schema は `nanobanana-adc-doctor/v1` で安定）
+# 機械可読 JSON（schema は `nanobanana-adc-doctor/v1` で安定）。
+# JSON のキーは camelCase で統一されています（`.adcSource` / `.quotaProjectId`
+# など、既存の `.gcpEnv` / `.authRoute` / `.apiKey` と同じスタイル）。
 nanobanana-adc doctor --json | jq .
+
+# 新しい ADC source セクションだけを覗く:
+nanobanana-adc doctor --json | jq .adcSource
 
 # fatal でないことを gate にする:
 nanobanana-adc doctor --json | jq -e '.fatal | not' >/dev/null && echo "ready"
 
 # ADC トークンの先頭・gcloud 設定・ランタイム情報を追加出力:
 nanobanana-adc doctor --verbose
+
+# GCE / Cloud Run の metadata server を 300ms で probe（opt-in）:
+nanobanana-adc doctor --probe-metadata-server
 ```
 
 `doctor` は **常に exit code 0** を返します（`fatal: true` でも 0）。これは
 診断ツールという設計哲学で、ゲートとして使う場合は `--json | jq` を経由して
-ください。詳細は [CHANGELOG.md](./CHANGELOG.md) の v0.4.0 参照。
+ください。詳細は [CHANGELOG.md](./CHANGELOG.md) の v0.4.0 / v0.5.0 参照。
 
 ### Warning コード対訳
 
@@ -190,10 +209,17 @@ Warning の `code` は JSON schema 互換性維持のため英語のまま固定
 | `CREDS_FILE_MISSING` | `GOOGLE_APPLICATION_CREDENTIALS` のパスにファイルが存在しません |
 | `USE_VERTEXAI_NOT_TRUE` | `GOOGLE_GENAI_USE_VERTEXAI` が `true` ではありません |
 | `API_KEY_FORMAT_SUSPECT` | `GEMINI_API_KEY` が `AIza` で始まっていません |
+| `ADC_QUOTA_PROJECT_MISMATCH` | ADC JSON の `quota_project_id` と `GOOGLE_CLOUD_PROJECT` が食い違っています（課金プロジェクトと操作対象がずれます） |
+| `ADC_FILE_MISSING` | `GOOGLE_APPLICATION_CREDENTIALS` のパスが存在しない／ディレクトリです（既存の `CREDS_FILE_MISSING` と並列で発火） |
+| `ADC_TYPE_UNUSUAL` | ADC JSON の `type` が想定 4 種（`authorized_user` / `service_account` / `external_account` / `impersonated_service_account`）以外です（info） |
 
-> **注意**: `--verbose` 出力には個人のメールアドレス（`gcloud config
-> get-value account`）やローカルパスが含まれることがあります。Issue・CI
-> ログ・デモ録画への貼り付けは内容確認の上で行ってください。
+> **注意**: `--verbose` 出力には個人のメールアドレス（`gcloud auth list`
+> / `gcloud config get-value account`）やローカルパスが含まれることが
+> あります。Issue・CI ログ・デモ録画への貼り付けは内容確認の上で行って
+> ください。なお、ADC JSON の secret（`private_key` / `private_key_id`
+> / `refresh_token`）は `text` / `json` / `--verbose` のどの出力にも
+> 一切出ません（`parseAdcMeta` が新しいオブジェクトに必要なフィールド
+> だけを詰め替える設計）。
 
 ## 認証
 

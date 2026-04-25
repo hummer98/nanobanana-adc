@@ -128,21 +128,21 @@ $ nanobanana-adc doctor
 nanobanana-adc doctor
 
 CLI
-  path:                           /usr/local/lib/node_modules/nanobanana-adc/dist/cli.js
-  version:                        0.4.0
-  install:                        npm-global
+  path:                             /usr/local/lib/node_modules/nanobanana-adc/dist/cli.js
+  version:                          0.5.0
+  install:                          npm-global
 
 Auth route
-  selected:                       adc   (GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION set; ADC path)
+  selected:                         adc   (GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION set; ADC path)
 
 API key
-  present:                        no
+  present:                          no
 
 ADC
-  probed:                         yes
-  status:                         ok
-  account:                        user@example.com
-  project:                        my-gcp-proj
+  probed:                           yes
+  status:                           ok
+  account:                          user@example.com
+  project:                          my-gcp-proj
 
 GCP env
   GOOGLE_CLOUD_PROJECT:             my-gcp-proj
@@ -150,35 +150,65 @@ GCP env
   GOOGLE_GENAI_USE_VERTEXAI:        true
   GOOGLE_APPLICATION_CREDENTIALS:   (unset)
 
+ADC source
+  resolved:                         default
+  env GOOGLE_APPLICATION_CREDENTIALS: (unset)
+  default location:                 /home/user/.config/gcloud/application_default_credentials.json   (exists, 2400 B, 2026-04-26T07:00:00.000Z)
+  CLOUDSDK_CONFIG path:             (unset)
+  metadata server:                  not probed (no GCE/Cloud Run env detected)
+  type:                             authorized_user
+  quotaProjectId:                   my-gcp-proj
+  clientId:                         32555940559.apps.googleusercontent.com
+  account:                          user@example.com
+
 Model
-  default:                        gemini-3-pro-image-preview
-  note:                           requires GOOGLE_CLOUD_LOCATION=global on the ADC path
+  default:                          gemini-3-pro-image-preview
+  note:                             requires GOOGLE_CLOUD_LOCATION=global on the ADC path
 
 Warnings (0)
   (none)
 ```
 
+`doctor` reports three additional warnings introduced in v0.5.0:
+
+| code | severity | when it fires |
+|---|---|---|
+| `ADC_QUOTA_PROJECT_MISMATCH` | `warn` | `quota_project_id` in the ADC JSON differs from `GOOGLE_CLOUD_PROJECT`. Run `gcloud auth application-default set-quota-project $GOOGLE_CLOUD_PROJECT` to align them. |
+| `ADC_FILE_MISSING` | `warn` | `GOOGLE_APPLICATION_CREDENTIALS` is set but the file does not exist (or is a directory). Fires alongside the existing `CREDS_FILE_MISSING` for backward compatibility. |
+| `ADC_TYPE_UNUSUAL` | `info` | The ADC JSON parsed but `type` is not one of `authorized_user` / `service_account` / `external_account` / `impersonated_service_account`. |
+
 Common flags:
 
 ```bash
-# Machine-readable JSON — stable schema `nanobanana-adc-doctor/v1`
+# Machine-readable JSON — stable schema `nanobanana-adc-doctor/v1`.
+# Output uses camelCase throughout (e.g. .adcSource, .quotaProjectId), matching
+# the existing .gcpEnv / .authRoute / .apiKey style.
 nanobanana-adc doctor --json | jq .
+
+# Inspect just the new ADC source resolution section:
+nanobanana-adc doctor --json | jq .adcSource
 
 # Gate a script on no-fatal-state:
 nanobanana-adc doctor --json | jq -e '.fatal | not' >/dev/null && echo "ready"
 
 # Include ADC token prefix, gcloud config, and runtime details:
 nanobanana-adc doctor --verbose
+
+# Probe the GCE / Cloud Run metadata server (300ms timeout, opt-in only):
+nanobanana-adc doctor --probe-metadata-server
 ```
 
 `doctor` always exits `0` — even when it reports `fatal: true` — because it is
 a diagnostic command, not a gate. Use `--json` + `jq` to drive CI. See
-[CHANGELOG.md](./CHANGELOG.md) v0.4.0 for the full rationale.
+[CHANGELOG.md](./CHANGELOG.md) v0.4.0 / v0.5.0 for the full rationale.
 
 > **Note**: `--verbose` can include personal email addresses (from
-> `gcloud config get-value account`) and local file paths. Avoid pasting
-> verbose output into issues, CI transcripts, or demo recordings without
-> review.
+> `gcloud auth list` / `gcloud config get-value account`) and local file
+> paths. Avoid pasting verbose output into issues, CI transcripts, or demo
+> recordings without review. Secrets in the ADC JSON (`private_key`,
+> `private_key_id`, `refresh_token`) are **never** copied to any output —
+> the `parseAdcMeta` helper allocates a fresh result object that omits
+> them.
 
 ## Authentication
 

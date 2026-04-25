@@ -1,4 +1,7 @@
 import { realpathSync, existsSync } from 'node:fs';
+import { stat as fsStat, readFile as fsReadFile } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as http from 'node:http';
 import { sep } from 'node:path';
 import { execFile } from 'node:child_process';
 import { GoogleAuth } from 'google-auth-library';
@@ -13,6 +16,78 @@ export interface DoctorEnv {
   GOOGLE_CLOUD_LOCATION?: string;
   GOOGLE_GENAI_USE_VERTEXAI?: string;
   GOOGLE_APPLICATION_CREDENTIALS?: string;
+  // T15: ADC source resolution heuristics
+  K_SERVICE?: string;
+  GAE_APPLICATION?: string;
+  KUBERNETES_SERVICE_HOST?: string;
+  CLOUD_BUILD_BUILDID?: string;
+  CLOUDSDK_CONFIG?: string;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADC source resolution types (T15)
+// ───────────────────────────────────────────────────────────────────────────
+
+export type AdcSourceKind =
+  | 'env'
+  | 'default'
+  | 'cloudsdk-config'
+  | 'metadata-server'
+  | 'unknown';
+
+export type AdcCredentialType =
+  | 'authorized_user'
+  | 'service_account'
+  | 'external_account'
+  | 'impersonated_service_account'
+  | 'unknown';
+
+export interface AdcSourceFileInfo {
+  path: string;
+  // exists=true means "exists as a regular file". directory / symlink-to-dir / ENOENT all map to exists=false.
+  exists: boolean;
+  size?: number;
+  mtimeMs?: number;
+}
+
+export interface AdcSourceMeta {
+  type: AdcCredentialType;
+  quotaProjectId?: string;
+  clientId?: string;
+  clientEmail?: string;
+}
+
+export interface AdcSourceReport {
+  resolved: AdcSourceKind;
+  envCredentials: AdcSourceFileInfo | null;
+  defaultLocation: AdcSourceFileInfo;
+  cloudsdkConfig?: AdcSourceFileInfo | null;
+  metadataServer: {
+    envHeuristic: 'k_service' | 'gae_application' | 'kubernetes' | 'cloud_build' | 'none';
+    probed: boolean;
+    probeOk?: boolean;
+    probeError?: string;
+  };
+  meta: AdcSourceMeta | null;
+  account?: string;
+  accountError?: string;
+}
+
+export interface ResolveAdcSourceDeps {
+  statAsync?: (
+    path: string,
+  ) => Promise<{ size: number; mtimeMs: number; isFile: boolean } | null>;
+  readJsonAsync?: (path: string, maxBytes: number) => Promise<unknown | null>;
+  gcloudActiveAccountFetcher?: () => Promise<string | undefined>;
+  metadataServerProbe?: (timeoutMs: number) => Promise<{ ok: boolean; error?: string }>;
+  homeDir?: () => string;
+  appDataDir?: () => string | undefined;
+  platform?: NodeJS.Platform;
+}
+
+export interface ResolveAdcSourceOptions {
+  probeMetadataServer: boolean;
+  maxJsonBytes?: number;
 }
 
 export interface AdcProbeResult {
@@ -34,6 +109,11 @@ export interface DoctorOptions {
   gcloudProjectFetcher?: () => Promise<string | undefined>;
   gcloudAdcFilePathFetcher?: () => Promise<string | undefined>;
   nowMs?: () => number;
+  probeMetadataServer?: boolean;
+  adcSourceResolver?: (
+    env: DoctorEnv,
+    opts: ResolveAdcSourceOptions,
+  ) => Promise<AdcSourceReport>;
 }
 
 export type InstallMethod = 'claude-plugin' | 'npm-global' | 'source' | 'unknown';
@@ -54,7 +134,10 @@ export type DoctorWarningCode =
   | 'LOCATION_MISSING'
   | 'CREDS_FILE_MISSING'
   | 'USE_VERTEXAI_NOT_TRUE'
-  | 'API_KEY_FORMAT_SUSPECT';
+  | 'API_KEY_FORMAT_SUSPECT'
+  | 'ADC_QUOTA_PROJECT_MISMATCH'
+  | 'ADC_FILE_MISSING'
+  | 'ADC_TYPE_UNUSUAL';
 
 export interface DoctorWarning {
   code: DoctorWarningCode;
@@ -96,6 +179,7 @@ export interface DoctorReport {
     default: 'gemini-3-pro-image-preview';
     note: 'requires GOOGLE_CLOUD_LOCATION=global on the ADC path';
   };
+  adcSource: AdcSourceReport;
   warnings: DoctorWarning[];
   fatal: boolean;
   verbose?: {
@@ -180,6 +264,7 @@ interface WarnCtx {
   apiKey: ApiKeyInfo;
   adc: DoctorReport['adc'];
   credsExists: boolean | null;
+  adcSource: AdcSourceReport;
 }
 
 export function warnNoAuth(ctx: WarnCtx): DoctorWarning | null {
@@ -268,6 +353,45 @@ export function warnApiKeyFormatSuspect(ctx: WarnCtx): DoctorWarning | null {
   };
 }
 
+export function warnAdcQuotaProjectMismatch(ctx: WarnCtx): DoctorWarning | null {
+  const qp = ctx.adcSource.meta?.quotaProjectId;
+  const envProject = ctx.env.GOOGLE_CLOUD_PROJECT;
+  if (!qp || !envProject) return null;
+  if (qp === envProject) return null;
+  return {
+    code: 'ADC_QUOTA_PROJECT_MISMATCH',
+    severity: 'warn',
+    message:
+      `ADC quota_project_id (${qp}) differs from GOOGLE_CLOUD_PROJECT (${envProject}). ` +
+      `Run \`gcloud auth application-default set-quota-project ${envProject}\` to align them so ` +
+      `billing and operations target the same project.`,
+  };
+}
+
+export function warnAdcFileMissing(ctx: WarnCtx): DoctorWarning | null {
+  const path = ctx.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!path) return null;
+  if (ctx.adcSource.envCredentials?.exists !== false) return null;
+  return {
+    code: 'ADC_FILE_MISSING',
+    severity: 'warn',
+    message: `GOOGLE_APPLICATION_CREDENTIALS=${path}, but the file does not exist.`,
+  };
+}
+
+export function warnAdcTypeUnusual(ctx: WarnCtx): DoctorWarning | null {
+  const meta = ctx.adcSource.meta;
+  if (meta === null) return null;
+  if (meta.type !== 'unknown') return null;
+  return {
+    code: 'ADC_TYPE_UNUSUAL',
+    severity: 'info',
+    message:
+      'ADC credential type is not one of authorized_user / service_account / external_account / impersonated_service_account. ' +
+      'The CLI may still work, but this is unexpected.',
+  };
+}
+
 export function computeWarnings(ctx: WarnCtx): DoctorWarning[] {
   const fns = [
     warnNoAuth,
@@ -277,10 +401,246 @@ export function computeWarnings(ctx: WarnCtx): DoctorWarning[] {
     warnCredsFileMissing,
     warnUseVertexaiNotTrue,
     warnApiKeyFormatSuspect,
+    warnAdcQuotaProjectMismatch,
+    warnAdcFileMissing,
+    warnAdcTypeUnusual,
   ];
   return fns
     .map((f) => f(ctx))
     .filter((w): w is DoctorWarning => w !== null);
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADC source resolution (T15)
+// ───────────────────────────────────────────────────────────────────────────
+
+export function parseAdcMeta(parsed: unknown): AdcSourceMeta {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { type: 'unknown' };
+  }
+  const obj = parsed as Record<string, unknown>;
+  const rawType = typeof obj.type === 'string' ? obj.type : '';
+  const type: AdcCredentialType =
+    rawType === 'authorized_user' ||
+    rawType === 'service_account' ||
+    rawType === 'external_account' ||
+    rawType === 'impersonated_service_account'
+      ? (rawType as AdcCredentialType)
+      : 'unknown';
+  const out: AdcSourceMeta = { type };
+  if (typeof obj.quota_project_id === 'string') out.quotaProjectId = obj.quota_project_id;
+  if (typeof obj.client_id === 'string') out.clientId = obj.client_id;
+  if (typeof obj.client_email === 'string' && type === 'service_account') {
+    out.clientEmail = obj.client_email;
+  }
+  // NOTE: private_key / refresh_token / private_key_id are intentionally not
+  // copied. We allocate a fresh object so the source object cannot leak via
+  // accidental serialization upstream.
+  return out;
+}
+
+async function fileInfo(
+  path: string,
+  statAsync: NonNullable<ResolveAdcSourceDeps['statAsync']>,
+): Promise<AdcSourceFileInfo> {
+  const s = await statAsync(path);
+  if (!s || !s.isFile) return { path, exists: false };
+  return { path, exists: true, size: s.size, mtimeMs: s.mtimeMs };
+}
+
+async function defaultStatAsync(
+  path: string,
+): Promise<{ size: number; mtimeMs: number; isFile: boolean } | null> {
+  try {
+    const s = await fsStat(path);
+    return { size: s.size, mtimeMs: s.mtimeMs, isFile: s.isFile() };
+  } catch {
+    return null;
+  }
+}
+
+async function defaultReadJsonAsync(
+  path: string,
+  maxBytes: number,
+): Promise<unknown | null> {
+  try {
+    const buf = await fsReadFile(path);
+    if (buf.byteLength > maxBytes) return null;
+    return JSON.parse(buf.toString('utf8')) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+export async function defaultMetadataServerProbe(
+  timeoutMs: number,
+): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const controller = new AbortController();
+    const handle: NodeJS.Timeout = setTimeout(() => controller.abort(), timeoutMs);
+    (handle as unknown as { unref?: () => void }).unref?.();
+    let settled = false;
+    const settle = (v: { ok: boolean; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(handle);
+      resolve(v);
+    };
+    try {
+      const req = http.request(
+        {
+          hostname: '169.254.169.254',
+          port: 80,
+          path: '/computeMetadata/v1/instance/id',
+          method: 'GET',
+          headers: { 'Metadata-Flavor': 'Google' },
+          signal: controller.signal as unknown as AbortSignal,
+        },
+        (res) => {
+          res.resume();
+          if (res.statusCode === 200) {
+            settle({ ok: true });
+          } else {
+            settle({ ok: false, error: `status ${res.statusCode}` });
+          }
+        },
+      );
+      req.on('error', (err) => {
+        if (controller.signal.aborted) {
+          settle({ ok: false, error: `timeout (${timeoutMs}ms)` });
+        } else {
+          settle({ ok: false, error: (err as Error).message });
+        }
+      });
+      req.end();
+    } catch (err) {
+      settle({ ok: false, error: (err as Error).message });
+    }
+  });
+}
+
+export async function defaultGcloudActiveAccountFetcher(): Promise<string | undefined> {
+  const out = await runGcloud([
+    'auth',
+    'list',
+    '--filter=status:ACTIVE',
+    '--format=value(account)',
+  ]);
+  if (!out) return undefined;
+  const firstLine = out.split(/\r?\n/)[0]?.trim();
+  return firstLine && firstLine.length > 0 ? firstLine : undefined;
+}
+
+export async function resolveAdcSource(
+  env: DoctorEnv,
+  opts: ResolveAdcSourceOptions,
+  deps: ResolveAdcSourceDeps = {},
+): Promise<AdcSourceReport> {
+  const stat = deps.statAsync ?? defaultStatAsync;
+  const readJson = deps.readJsonAsync ?? defaultReadJsonAsync;
+  const probe = deps.metadataServerProbe ?? defaultMetadataServerProbe;
+  const acct = deps.gcloudActiveAccountFetcher ?? defaultGcloudActiveAccountFetcher;
+  const platform = deps.platform ?? process.platform;
+  const home = (deps.homeDir ?? (() => os.homedir()))();
+  const appData = (deps.appDataDir ?? (() => process.env.APPDATA))();
+  const maxBytes = opts.maxJsonBytes ?? 1_048_576;
+
+  const envPath = env.GOOGLE_APPLICATION_CREDENTIALS;
+  const envCredentials: AdcSourceFileInfo | null = envPath
+    ? await fileInfo(envPath, stat)
+    : null;
+
+  const cloudsdkConfigDir = env.CLOUDSDK_CONFIG;
+  const cloudsdkConfig: AdcSourceFileInfo | null = cloudsdkConfigDir
+    ? await fileInfo(
+        `${cloudsdkConfigDir}/application_default_credentials.json`,
+        stat,
+      )
+    : null;
+
+  const defaultPath =
+    platform === 'win32'
+      ? `${appData ?? ''}\\gcloud\\application_default_credentials.json`
+      : `${home}/.config/gcloud/application_default_credentials.json`;
+  const defaultLocation = await fileInfo(defaultPath, stat);
+
+  const envHeuristic: AdcSourceReport['metadataServer']['envHeuristic'] = env.K_SERVICE
+    ? 'k_service'
+    : env.GAE_APPLICATION
+      ? 'gae_application'
+      : env.KUBERNETES_SERVICE_HOST
+        ? 'kubernetes'
+        : env.CLOUD_BUILD_BUILDID
+          ? 'cloud_build'
+          : 'none';
+
+  const resolved: AdcSourceKind = envCredentials?.exists
+    ? 'env'
+    : cloudsdkConfig?.exists
+      ? 'cloudsdk-config'
+      : defaultLocation.exists
+        ? 'default'
+        : envHeuristic !== 'none'
+          ? 'metadata-server'
+          : 'unknown';
+
+  let meta: AdcSourceMeta | null = null;
+  const picked: AdcSourceFileInfo | null =
+    resolved === 'env'
+      ? envCredentials
+      : resolved === 'cloudsdk-config'
+        ? cloudsdkConfig
+        : resolved === 'default'
+          ? defaultLocation
+          : null;
+  if (picked?.exists && (picked.size ?? Infinity) <= maxBytes) {
+    const parsed = await readJson(picked.path, maxBytes);
+    if (parsed !== null) meta = parseAdcMeta(parsed);
+  }
+
+  let metadataServer: AdcSourceReport['metadataServer'];
+  if (opts.probeMetadataServer) {
+    try {
+      const r = await probe(300);
+      metadataServer = {
+        envHeuristic,
+        probed: true,
+        probeOk: r.ok,
+        ...(r.error ? { probeError: r.error } : {}),
+      };
+    } catch (err) {
+      metadataServer = {
+        envHeuristic,
+        probed: true,
+        probeOk: false,
+        probeError: (err as Error).message,
+      };
+    }
+  } else {
+    metadataServer = { envHeuristic, probed: false };
+  }
+
+  let account: string | undefined;
+  let accountError: string | undefined;
+  try {
+    account = await acct();
+  } catch {
+    account = undefined;
+  }
+  if (account === undefined) {
+    accountError = 'gcloud unavailable or no active account';
+  }
+
+  return {
+    resolved,
+    envCredentials,
+    defaultLocation,
+    ...(cloudsdkConfigDir ? { cloudsdkConfig } : {}),
+    metadataServer,
+    meta,
+    ...(account !== undefined ? { account } : {}),
+    ...(accountError !== undefined ? { accountError } : {}),
+  };
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -407,11 +767,16 @@ export async function buildDoctorReport(
     ...(adcResult.error !== undefined ? { error: adcResult.error } : {}),
   };
 
+  const probeMetadataServer = !!opts.probeMetadataServer;
+  const adcResolver = opts.adcSourceResolver ?? resolveAdcSource;
+  const adcSource = await adcResolver(env, { probeMetadataServer });
+
   const warnings = computeWarnings({
     env,
     apiKey,
     adc: adcBlock,
     credsExists,
+    adcSource,
   });
   const fatal = warnings.some((w) => w.severity === 'fatal');
 
@@ -439,6 +804,7 @@ export async function buildDoctorReport(
       default: 'gemini-3-pro-image-preview',
       note: 'requires GOOGLE_CLOUD_LOCATION=global on the ADC path',
     },
+    adcSource,
     warnings,
     fatal,
   };
@@ -476,13 +842,33 @@ const KV_WIDTH = 34;
 
 function kv(key: string, value: string | undefined, extra = ''): string {
   const v = value === undefined || value === '' ? '(unset)' : value;
-  const padded = (key + ':').padEnd(KV_WIDTH, ' ');
+  const colon = key + ':';
+  const padded = colon.length >= KV_WIDTH ? colon + ' ' : colon.padEnd(KV_WIDTH, ' ');
   return `  ${padded}${v}${extra ? '   ' + extra : ''}`;
 }
 
 function severityMarker(sev: DoctorWarning['severity']): string {
   if (sev === 'info') return 'ⓘ';
   return '⚠';
+}
+
+function renderFileExtras(info: AdcSourceFileInfo): string {
+  if (!info.exists) return '(not found)';
+  const parts: string[] = ['exists'];
+  if (info.size !== undefined) parts.push(`${info.size} B`);
+  if (info.mtimeMs !== undefined) parts.push(new Date(info.mtimeMs).toISOString());
+  return `(${parts.join(', ')})`;
+}
+
+function renderMetadataServer(ms: AdcSourceReport['metadataServer']): string {
+  if (ms.probed) {
+    if (ms.probeOk) return 'probed: ok (300ms)';
+    return `probed: failed (${ms.probeError ?? 'unknown error'})`;
+  }
+  if (ms.envHeuristic === 'none') {
+    return 'not probed (no GCE/Cloud Run env detected)';
+  }
+  return `not probed (heuristic: ${ms.envHeuristic})`;
 }
 
 export function renderDoctorText(report: DoctorReport): string {
@@ -546,6 +932,59 @@ export function renderDoctorText(report: DoctorReport): string {
   lines.push(
     kv('GOOGLE_APPLICATION_CREDENTIALS', credsPath ?? undefined, credsExtra),
   );
+  lines.push('');
+
+  // ADC source
+  const a = report.adcSource;
+  lines.push('ADC source');
+  lines.push(kv('resolved', a.resolved));
+  if (a.envCredentials === null) {
+    lines.push(kv('env GOOGLE_APPLICATION_CREDENTIALS', undefined));
+  } else {
+    lines.push(
+      kv(
+        'env GOOGLE_APPLICATION_CREDENTIALS',
+        a.envCredentials.path,
+        renderFileExtras(a.envCredentials),
+      ),
+    );
+  }
+  lines.push(
+    kv('default location', a.defaultLocation.path, renderFileExtras(a.defaultLocation)),
+  );
+  if (a.cloudsdkConfig === undefined) {
+    lines.push(kv('CLOUDSDK_CONFIG path', undefined));
+  } else if (a.cloudsdkConfig === null) {
+    lines.push(kv('CLOUDSDK_CONFIG path', undefined));
+  } else {
+    lines.push(
+      kv(
+        'CLOUDSDK_CONFIG path',
+        a.cloudsdkConfig.path,
+        renderFileExtras(a.cloudsdkConfig),
+      ),
+    );
+  }
+  lines.push(kv('metadata server', renderMetadataServer(a.metadataServer)));
+  if (a.meta === null) {
+    lines.push(kv('meta', '(not available — file unreadable or not parsed)'));
+  } else {
+    lines.push(kv('type', a.meta.type));
+    if (a.meta.quotaProjectId !== undefined) {
+      lines.push(kv('quotaProjectId', a.meta.quotaProjectId));
+    }
+    if (a.meta.clientId !== undefined) {
+      lines.push(kv('clientId', a.meta.clientId));
+    }
+    if (a.meta.clientEmail !== undefined) {
+      lines.push(kv('clientEmail', a.meta.clientEmail));
+    }
+  }
+  if (a.account !== undefined) {
+    lines.push(kv('account', a.account));
+  } else if (a.accountError !== undefined) {
+    lines.push(kv('account', `<unresolved (${a.accountError})>`));
+  }
   lines.push('');
 
   lines.push('Model');

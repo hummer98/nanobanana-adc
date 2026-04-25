@@ -16,12 +16,12 @@ import {
   type DoctorEnv,
 } from './doctor.js';
 
-const CLI_VERSION = '0.4.0';
+const CLI_VERSION = '0.5.0';
 
 const program = new Command()
   .name('nanobanana-adc')
   .description('Gemini 3 Pro Image CLI with ADC support')
-  .version('0.4.0');
+  .version('0.5.0');
 
 program
   .command('generate', { isDefault: true })
@@ -92,20 +92,39 @@ program
   .description('Diagnose auth / env state (always exit 0; see --json for scripting)')
   .option('--json', 'emit machine-readable JSON')
   .option('-v, --verbose', 'include debug fields (ACCESS_TOKEN prefix 8 chars, gcloud raw, runtime)')
-  .action(async (opts: { json?: boolean; verbose?: boolean }) => {
-    // doctor の --api-key は受け取らない。将来拡張点として resolveAuthRoute は
-    // apiKeyFlag を受け付けるが、現時点では常に undefined を渡す。
-    const env = process.env as DoctorEnv;
-    const report = await buildDoctorReport(env, {
-      verbose: !!opts.verbose,
-      argv1: process.argv[1] ?? '',
-      version: CLI_VERSION,
-    });
-    const out = opts.json
-      ? renderDoctorJSON(report) + '\n'
-      : renderDoctorText(report);
-    process.stdout.write(out);
-  });
+  .option(
+    '--probe-metadata-server',
+    'probe 169.254.169.254 (300ms) for GCE/Cloud Run metadata server',
+    false,
+  )
+  .action(
+    async (opts: { json?: boolean; verbose?: boolean; probeMetadataServer?: boolean }) => {
+      // doctor の --api-key は受け取らない。将来拡張点として resolveAuthRoute は
+      // apiKeyFlag を受け付けるが、現時点では常に undefined を渡す。
+      const env: DoctorEnv = {
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+        GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
+        GOOGLE_CLOUD_LOCATION: process.env.GOOGLE_CLOUD_LOCATION,
+        GOOGLE_GENAI_USE_VERTEXAI: process.env.GOOGLE_GENAI_USE_VERTEXAI,
+        GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+        K_SERVICE: process.env.K_SERVICE,
+        GAE_APPLICATION: process.env.GAE_APPLICATION,
+        KUBERNETES_SERVICE_HOST: process.env.KUBERNETES_SERVICE_HOST,
+        CLOUD_BUILD_BUILDID: process.env.CLOUD_BUILD_BUILDID,
+        CLOUDSDK_CONFIG: process.env.CLOUDSDK_CONFIG,
+      };
+      const report = await buildDoctorReport(env, {
+        verbose: !!opts.verbose,
+        argv1: process.argv[1] ?? '',
+        version: CLI_VERSION,
+        probeMetadataServer: !!opts.probeMetadataServer,
+      });
+      const out = opts.json
+        ? renderDoctorJSON(report) + '\n'
+        : renderDoctorText(report);
+      process.stdout.write(out);
+    },
+  );
 
 program.parseAsync(process.argv).catch((err: unknown) => {
   const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
