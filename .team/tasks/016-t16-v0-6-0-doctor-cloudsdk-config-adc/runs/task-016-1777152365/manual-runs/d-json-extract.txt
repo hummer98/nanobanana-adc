@@ -1,0 +1,54 @@
+{
+  "gcloudConfigDir": {
+    "resolved": "/Users/yamamoto/git/KDG-lab/.config/gcloud",
+    "source": "env-cloudsdk-config",
+    "presence": {
+      "activeConfig": {
+        "state": "exists"
+      },
+      "configurations": {
+        "state": "exists",
+        "entries": 1
+      },
+      "credentialsDb": {
+        "state": "exists"
+      },
+      "accessTokensDb": {
+        "state": "exists"
+      },
+      "applicationDefaultCredentialsJson": {
+        "state": "exists"
+      },
+      "legacyCredentials": {
+        "state": "missing"
+      }
+    },
+    "note": "overrides $HOME/.config/gcloud entirely; gcloud auth list / configurations / ADC are isolated from the OS default"
+  },
+  "adcSource": {
+    "resolved": "default",
+    "envCredentials": null,
+    "effectiveDefault": {
+      "path": "/Users/yamamoto/git/KDG-lab/.config/gcloud/application_default_credentials.json",
+      "exists": true,
+      "size": 403,
+      "mtimeMs": 1775662219635.8416
+    },
+    "defaultLocation": {
+      "path": "/Users/yamamoto/git/KDG-lab/.config/gcloud/application_default_credentials.json",
+      "exists": true,
+      "size": 403,
+      "mtimeMs": 1775662219635.8416
+    },
+    "metadataServer": {
+      "envHeuristic": "none",
+      "probed": false
+    },
+    "meta": {
+      "type": "authorized_user",
+      "quotaProjectId": "gen-lang-client-0451899685",
+      "clientId": "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com"
+    },
+    "accountError": "gcloud unavailable or no active account"
+  }
+}

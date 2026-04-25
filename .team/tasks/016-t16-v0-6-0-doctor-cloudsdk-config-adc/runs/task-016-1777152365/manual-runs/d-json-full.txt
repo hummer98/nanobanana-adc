@@ -1,0 +1,94 @@
+{
+  "schema": "nanobanana-adc-doctor/v1",
+  "generatedAt": "2026-04-25T21:59:37.430Z",
+  "cli": {
+    "path": "/Users/yamamoto/git/nanobanana-adc/.worktrees/task-016-1777152365/dist/cli.js",
+    "version": "0.6.0",
+    "installMethod": "source"
+  },
+  "authRoute": {
+    "selected": "adc",
+    "reason": "GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION set; ADC path"
+  },
+  "apiKey": {
+    "present": false
+  },
+  "adc": {
+    "probed": true,
+    "ok": true,
+    "project": "gen-lang-client-0451899685"
+  },
+  "gcpEnv": {
+    "GOOGLE_CLOUD_PROJECT": "gen-lang-client-0451899685",
+    "GOOGLE_CLOUD_LOCATION": "global",
+    "GOOGLE_GENAI_USE_VERTEXAI": "true",
+    "GOOGLE_APPLICATION_CREDENTIALS": {
+      "path": null,
+      "exists": null
+    }
+  },
+  "model": {
+    "default": "gemini-3-pro-image-preview",
+    "note": "requires GOOGLE_CLOUD_LOCATION=global on the ADC path"
+  },
+  "adcSource": {
+    "resolved": "default",
+    "envCredentials": null,
+    "effectiveDefault": {
+      "path": "/Users/yamamoto/git/KDG-lab/.config/gcloud/application_default_credentials.json",
+      "exists": true,
+      "size": 403,
+      "mtimeMs": 1775662219635.8416
+    },
+    "defaultLocation": {
+      "path": "/Users/yamamoto/git/KDG-lab/.config/gcloud/application_default_credentials.json",
+      "exists": true,
+      "size": 403,
+      "mtimeMs": 1775662219635.8416
+    },
+    "metadataServer": {
+      "envHeuristic": "none",
+      "probed": false
+    },
+    "meta": {
+      "type": "authorized_user",
+      "quotaProjectId": "gen-lang-client-0451899685",
+      "clientId": "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com"
+    },
+    "accountError": "gcloud unavailable or no active account"
+  },
+  "gcloudConfigDir": {
+    "resolved": "/Users/yamamoto/git/KDG-lab/.config/gcloud",
+    "source": "env-cloudsdk-config",
+    "presence": {
+      "activeConfig": {
+        "state": "exists"
+      },
+      "configurations": {
+        "state": "exists",
+        "entries": 1
+      },
+      "credentialsDb": {
+        "state": "exists"
+      },
+      "accessTokensDb": {
+        "state": "exists"
+      },
+      "applicationDefaultCredentialsJson": {
+        "state": "exists"
+      },
+      "legacyCredentials": {
+        "state": "missing"
+      }
+    },
+    "note": "overrides $HOME/.config/gcloud entirely; gcloud auth list / configurations / ADC are isolated from the OS default"
+  },
+  "warnings": [
+    {
+      "code": "CLOUDSDK_CONFIG_OVERRIDE",
+      "severity": "info",
+      "message": "gcloud config directory is overridden to `/Users/yamamoto/git/KDG-lab/.config/gcloud` via CLOUDSDK_CONFIG; gcloud auth / configurations / ADC are isolated from $HOME/.config/gcloud."
+    }
+  ],
+  "fatal": false
+}
