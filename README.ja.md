@@ -2,6 +2,8 @@
 
 [English](./README.md) · 日本語
 
+![nanobanana-adc — ADC で動く Gemini 3 Pro Image CLI](docs/generated/readme-hero.png)
+
 > Gemini 3 Pro Image（Nano Banana Pro）の CLI。ADC（Application Default Credentials）を第一級サポートし、CI・Cloud Run・gcloud 認証済みワークステーションから API キーを配布せずに Vertex AI を利用できます。
 
 ## なぜ nanobanana-adc なのか
