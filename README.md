@@ -268,8 +268,16 @@ a diagnostic command, not a gate. Use `--json` + `jq` to drive CI. See
 ### Option A — Application Default Credentials (recommended)
 
 ```bash
-# 1. Sign in for application-default credentials.
-gcloud auth application-default login
+# 1. Sign in for application-default credentials with one command.
+nanobanana-adc auth login
+
+# By default, the login subcommand:
+#   - resolves CLOUDSDK_CONFIG from --config-dir / $CLOUDSDK_CONFIG (inherited as-is) /
+#     $GOOGLE_APPLICATION_CREDENTIALS dirname / gcloud default
+#   - runs `gcloud auth application-default set-quota-project $GOOGLE_CLOUD_PROJECT`
+#     if that env is set
+# Override with --config-dir <path>, --quota-project <id>, --no-quota-project,
+# or --scopes <csv>.
 
 # 2. Point at your Vertex AI project and region.
 export GOOGLE_CLOUD_PROJECT=my-project
@@ -280,7 +288,49 @@ export GOOGLE_GENAI_USE_VERTEXAI=true
 nanobanana-adc --prompt "a cat in space" --output cat.png
 ```
 
-In CI or on Cloud Run, skip `gcloud auth application-default login` and instead set `GOOGLE_APPLICATION_CREDENTIALS` to a service account JSON file, or attach a service account to the workload so ADC resolves automatically.
+If you prefer the manual flow:
+
+```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project "$GOOGLE_CLOUD_PROJECT"
+```
+
+In CI or on Cloud Run, skip `gcloud auth application-default login` (and `nanobanana-adc auth login`) and instead set `GOOGLE_APPLICATION_CREDENTIALS` to a service account JSON file, or attach a service account to the workload so ADC resolves automatically.
+
+#### `auth login` subcommand
+
+`nanobanana-adc auth login` is a thin wrapper around
+`gcloud auth application-default login` that resolves `CLOUDSDK_CONFIG` and
+quota project the same way `nanobanana-adc doctor` reports them, so the path
+the doctor shows after `auth login` matches the path that ADC will read from.
+
+```bash
+# See the resolved plan without spawning gcloud (no auth flow, exit 0):
+nanobanana-adc auth login --dry-run
+
+# Print argv used for the spawned gcloud invocation:
+nanobanana-adc auth login --verbose
+
+# Narrow scopes (defaults to gcloud built-in scopes):
+nanobanana-adc auth login --scopes https://www.googleapis.com/auth/cloud-platform
+
+# Full help, including the resolution priority block:
+nanobanana-adc auth login --help
+```
+
+> **Note**: `--dry-run` works even when the gcloud SDK is not installed (it
+> never spawns gcloud and never touches the filesystem). A real
+> `auth login` run requires the [gcloud CLI](https://cloud.google.com/sdk/docs/install)
+> on `PATH`.
+
+Resolution priority (see `--help` for the canonical block):
+
+- `CLOUDSDK_CONFIG`: `--config-dir` → `$CLOUDSDK_CONFIG` (passed through as-is)
+  → `$GOOGLE_APPLICATION_CREDENTIALS` dirname (only when its basename is
+  `application_default_credentials.json`) → gcloud OS default
+  (`CLOUDSDK_CONFIG` unset for the child).
+- Quota project: `--quota-project <id>` → `--no-quota-project` (skip) →
+  `$GOOGLE_CLOUD_PROJECT` → skip with notice.
 
 ### Option B — API key (fallback)
 

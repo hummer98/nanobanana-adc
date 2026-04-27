@@ -3,6 +3,27 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-04-27
+
+### Added
+- `nanobanana-adc auth login` subcommand. Wraps
+  `gcloud auth application-default login` with inline `CLOUDSDK_CONFIG`
+  resolution and an optional `set-quota-project` follow-up. Resolves the
+  common DX gap from issue #6 (ADC permission setup / 403) by giving users
+  a one-shot CLI that lines up with `nanobanana-adc doctor`'s reported
+  config dir and quota project.
+  - Flags: `--config-dir <path>`, `--quota-project <id>`,
+    `--no-quota-project`, `--scopes <csv>`, `--dry-run`, `--verbose`.
+  - `CLOUDSDK_CONFIG` resolution priority:
+    `--config-dir` → `$CLOUDSDK_CONFIG` (inherited as-is) →
+    `$GOOGLE_APPLICATION_CREDENTIALS` dirname (only when its basename is
+    `application_default_credentials.json`) → gcloud OS default
+    (`CLOUDSDK_CONFIG` unset).
+  - Quota project resolution priority: `--quota-project` →
+    `--no-quota-project` (skip) → `$GOOGLE_CLOUD_PROJECT` → skip + notice.
+  - `auth` subcommand namespace introduced as the home for future
+    `auth status` / `auth revoke` commands.
+
 ## [0.6.0] - 2026-04-26
 
 ### Added

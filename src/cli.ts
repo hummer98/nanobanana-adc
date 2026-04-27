@@ -15,13 +15,77 @@ import {
   renderDoctorText,
   type DoctorEnv,
 } from './doctor.js';
+import { runAuthLogin, type LoginCliOptions } from './auth-login.js';
 
-const CLI_VERSION = '0.6.0';
+const CLI_VERSION = '0.7.0';
+
+function nonEmpty(label: string) {
+  return (value: string): string => {
+    if (value === '' || value.trim() === '') {
+      throw new InvalidArgumentError(`${label} must be a non-empty string`);
+    }
+    return value;
+  };
+}
+
+const AUTH_LOGIN_HELP_AFTER = `
+CLOUDSDK_CONFIG resolution priority:
+  1. --config-dir <path>
+  2. $CLOUDSDK_CONFIG (existing env)        [pass-through; auth login does not rewrite]
+  3. $GOOGLE_APPLICATION_CREDENTIALS dirname (only if basename === 'application_default_credentials.json')
+  4. gcloud OS default                      [auth login unsets CLOUDSDK_CONFIG]
+
+Quota project resolution priority:
+  1. --quota-project <id>
+  2. --no-quota-project (skip)
+  3. $GOOGLE_CLOUD_PROJECT
+  4. otherwise: skip with notice
+`;
+
+export function buildAuthLoginCommand(
+  onAction?: (opts: LoginCliOptions) => Promise<void>,
+): Command {
+  const cmd = new Command('login')
+    .description(
+      'Run `gcloud auth application-default login` with CLOUDSDK_CONFIG inline + optional quota/scope',
+    )
+    .option(
+      '--config-dir <path>',
+      'override CLOUDSDK_CONFIG (default: $CLOUDSDK_CONFIG → GAC dirname → gcloud OS default)',
+      nonEmpty('--config-dir'),
+    )
+    .option(
+      '--quota-project <id>',
+      'run set-quota-project after login (default: $GOOGLE_CLOUD_PROJECT if set)',
+      nonEmpty('--quota-project'),
+    )
+    .option(
+      '--no-quota-project',
+      'skip quota project set (overrides $GOOGLE_CLOUD_PROJECT default)',
+    )
+    .option(
+      '--scopes <csv>',
+      'pass --scopes=<csv> to gcloud (default: gcloud built-in scopes)',
+      nonEmpty('--scopes'),
+    )
+    .option('--dry-run', 'print resolved plan and exit 0 without spawning gcloud')
+    .option('--verbose', 'print argv used for the spawned gcloud invocation')
+    .addHelpText('after', AUTH_LOGIN_HELP_AFTER)
+    .action(async (opts: LoginCliOptions) => {
+      if (onAction) {
+        await onAction(opts);
+        return;
+      }
+      const code = await runAuthLogin(opts);
+      process.exit(code);
+    });
+  return cmd;
+}
 
 const program = new Command()
   .name('nanobanana-adc')
   .description('Gemini 3 Pro Image CLI with ADC support')
-  .version('0.6.0');
+  .version(CLI_VERSION);
 
 program
   .command('generate', { isDefault: true })
@@ -126,8 +190,25 @@ program
     },
   );
 
-program.parseAsync(process.argv).catch((err: unknown) => {
-  const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
-  process.stderr.write(`${msg}\n`);
-  process.exit(1);
-});
+const auth = program
+  .command('auth')
+  .description('ADC / gcloud authentication setup');
+auth.addCommand(buildAuthLoginCommand());
+
+// Only auto-parse argv when this module is executed as the entry point.
+// Importing it in tests (for buildAuthLoginCommand) must not consume process.argv.
+const isEntry = (() => {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  // import.meta.url comparison would be cleaner but we want to keep this CommonJS-friendly
+  // for the built dist/cli.js. The bin shim invokes dist/cli.js directly.
+  return /\bcli\.js$/.test(argv1) || /\bnanobanana-adc$/.test(argv1);
+})();
+
+if (isEntry) {
+  program.parseAsync(process.argv).catch((err: unknown) => {
+    const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    process.stderr.write(`${msg}\n`);
+    process.exit(1);
+  });
+}

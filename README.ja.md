@@ -280,8 +280,16 @@ Warning の `code` は JSON schema 互換性維持のため英語のまま固定
 ### 方式 A — Application Default Credentials（推奨）
 
 ```bash
-# 1. application-default credentials でサインイン。
-gcloud auth application-default login
+# 1. application-default credentials を 1 コマンドでサインイン。
+nanobanana-adc auth login
+
+# auth login サブコマンドは既定で:
+#   - CLOUDSDK_CONFIG を --config-dir / $CLOUDSDK_CONFIG（そのまま継承） /
+#     $GOOGLE_APPLICATION_CREDENTIALS の dirname / gcloud 既定 から解決
+#   - $GOOGLE_CLOUD_PROJECT が設定されていれば
+#     `gcloud auth application-default set-quota-project $GOOGLE_CLOUD_PROJECT` を続けて実行
+# 上書きするには --config-dir <path> / --quota-project <id> /
+# --no-quota-project / --scopes <csv> を渡してください。
 
 # 2. Vertex AI のプロジェクトとリージョンを指定。
 export GOOGLE_CLOUD_PROJECT=my-project
@@ -292,7 +300,49 @@ export GOOGLE_GENAI_USE_VERTEXAI=true
 nanobanana-adc --prompt "a cat in space" --output cat.png
 ```
 
-CI や Cloud Run では `gcloud auth application-default login` は使わず、`GOOGLE_APPLICATION_CREDENTIALS` にサービスアカウント JSON ファイルのパスを設定するか、ワークロードにサービスアカウントをアタッチしてください。ADC が自動で解決します。
+手動で行う場合:
+
+```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project "$GOOGLE_CLOUD_PROJECT"
+```
+
+CI や Cloud Run では `nanobanana-adc auth login`（および `gcloud auth application-default login`）は使わず、`GOOGLE_APPLICATION_CREDENTIALS` にサービスアカウント JSON ファイルのパスを設定するか、ワークロードにサービスアカウントをアタッチしてください。ADC が自動で解決します。
+
+#### `auth login` サブコマンド
+
+`nanobanana-adc auth login` は `gcloud auth application-default login` の薄い
+ラッパで、`CLOUDSDK_CONFIG` と quota project を `nanobanana-adc doctor` と
+同じロジックで解決します。`auth login` 完了後の doctor が示すパスと、ADC が
+実際に読みに行くパスが一致するように設計されています。
+
+```bash
+# 解決された plan のみを表示（gcloud は起動しない、exit 0）:
+nanobanana-adc auth login --dry-run
+
+# spawn する gcloud に渡す argv を表示:
+nanobanana-adc auth login --verbose
+
+# scopes を絞る（既定は gcloud の組込み scopes）:
+nanobanana-adc auth login --scopes https://www.googleapis.com/auth/cloud-platform
+
+# 解決優先順を含むフル help:
+nanobanana-adc auth login --help
+```
+
+> **注記**: `--dry-run` は gcloud SDK が未インストールでも動作します
+> （gcloud を起動せず、ファイルシステムにも触れません）。実際の
+> `auth login` 実行には [gcloud CLI](https://cloud.google.com/sdk/docs/install)
+> が `PATH` 上に必要です。
+
+解決優先順（正本は `--help` を参照）:
+
+- `CLOUDSDK_CONFIG`: `--config-dir` → `$CLOUDSDK_CONFIG`（そのまま継承） →
+  `$GOOGLE_APPLICATION_CREDENTIALS` の dirname（basename が
+  `application_default_credentials.json` のときのみ） → gcloud OS 既定
+  （子プロセスでは `CLOUDSDK_CONFIG` を unset）。
+- Quota project: `--quota-project <id>` → `--no-quota-project`（skip） →
+  `$GOOGLE_CLOUD_PROJECT` → notice 付きで skip。
 
 ### 方式 B — API キー（フォールバック）
 

@@ -1,6 +1,6 @@
 {
   "name": "nanobanana-adc",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Gemini 3 Pro Image CLI with Application Default Credentials (ADC) support",
   "license": "MIT",
   "keywords": [
@@ -43,7 +43,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx src/png.test.ts src/generate.test.ts src/doctor.test.ts",
+    "test": "node --test --import tsx src/png.test.ts src/generate.test.ts src/doctor.test.ts src/auth-login.test.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
