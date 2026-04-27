@@ -2,9 +2,30 @@
 
 [English](./README.md) · 日本語
 
-![nanobanana-adc — ADC で動く Gemini 3 Pro Image CLI](docs/generated/readme-hero.png)
+![nanobanana-adc — Application Default Credentials (ADC) で動く Gemini 3 Pro Image CLI](docs/generated/readme-hero.png)
 
 > Gemini 3 Pro Image（Nano Banana Pro）の CLI。ADC（Application Default Credentials）を第一級サポートし、CI・Cloud Run・gcloud 認証済みワークステーションから API キーを配布せずに Vertex AI を利用できます。
+
+## なぜ ADC？ なぜこの CLI？
+
+Application Default Credentials（ADC）は、長寿命のシークレットをアプリケーションに埋め込まずに認証情報を取得するための Google Cloud 公式の方法です。本 CLI が ADC を主軸にしているのは次の 5 つの具体的な理由からです。
+
+- **長寿命の秘密情報を持たない**。リポジトリ・CI 変数・コンテナイメージに API キーを焼き付ける必要がありません。認証情報は実行時にホスト環境から解決されます。
+- **短命の access token**。ADC は要求の都度、短命の OAuth access token を発行します。漏洩時の影響範囲は数か月ではなく数分に閉じ込められます。
+- **IAM で集中統制**。誰が／どの workload が Vertex AI を呼べるかを Google Cloud IAM で集中管理でき、principal 単位の監査ログが Cloud Logging に残ります。
+- **Workload Identity に親和的**。Cloud Run / GKE / Cloud Build / GitHub Actions から Workload Identity Federation・OIDC でディスク上に鍵ファイルを置かずに認証できます。
+- **gcloud ユーザーならそのまま動く**。`gcloud auth application-default login` 済みの開発機では、追加設定 0 で本 CLI が動きます。
+
+## 関連背景・公式リンク
+
+ADC と Vertex AI の前提知識（リンクは英語ドキュメント）:
+
+- [Application Default Credentials — 概要](https://cloud.google.com/docs/authentication/application-default-credentials) — ADC とは何か、Google のクライアントライブラリが認証情報をどう検出するか。
+- [ADC のセットアップ](https://cloud.google.com/docs/authentication/provide-credentials-adc) — ローカル開発・サーバ・CI での ADC の与え方。
+- [Vertex AI generative AI ドキュメント](https://cloud.google.com/vertex-ai/generative-ai/docs) — Vertex AI の生成系モデル一覧。画像生成も含む。
+- [Gemini 3 Pro Image (Nano Banana Pro) on Vertex AI](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image) — 本 CLI が呼び出すモデル。
+- [google-auth-library-nodejs](https://github.com/googleapis/google-auth-library-nodejs) — 本 CLI が ADC トークン取得に使う公式 Node.js ライブラリ。
+- [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation) — GitHub Actions / GitLab / AWS など外部ワークロードからの鍵レス認証。
 
 ## なぜ nanobanana-adc なのか
 
@@ -52,6 +73,8 @@ gcloud auth application-default login
 
 nanobanana-adc --prompt "a cat in space" --output cat.png
 ```
+
+> `gcloud auth application-default login` の詳細は [Set up Application Default Credentials](https://cloud.google.com/docs/authentication/provide-credentials-adc) を参照。
 
 ## 使い方
 

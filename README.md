@@ -2,9 +2,32 @@
 
 English · [日本語](./README.ja.md)
 
-![nanobanana-adc — Gemini 3 Pro Image CLI with ADC support](docs/generated/readme-hero.png)
+![nanobanana-adc — Gemini 3 Pro Image CLI with Application Default Credentials (ADC) support](docs/generated/readme-hero.png)
 
-> Gemini 3 Pro Image (Nano Banana Pro) CLI with first-class Application Default Credentials support — use Vertex AI from CI, Cloud Run, or any gcloud-authenticated workstation without handing out API keys.
+> Gemini 3 Pro Image (Nano Banana Pro) CLI with first-class Application Default Credentials (ADC) support — use Vertex AI from CI, Cloud Run, or any gcloud-authenticated workstation without handing out API keys.
+
+## Why ADC? Why this CLI?
+
+Application Default Credentials (ADC) is Google Cloud's recommended way for
+applications to obtain credentials without embedding long-lived secrets.
+This CLI is built around ADC for five concrete reasons:
+
+- **No long-lived secrets.** Nothing to bake into a repository, a CI variable, or a container image — credentials are resolved at runtime from the host environment.
+- **Short-lived tokens.** ADC mints short-lived OAuth access tokens on demand, so the blast radius of a leaked token is minutes, not months.
+- **IAM-governed.** Who and which workload can call Vertex AI is controlled centrally in Google Cloud IAM, with principal-level audit logs in Cloud Logging.
+- **Workload Identity friendly.** Cloud Run, GKE, Cloud Build, and GitHub Actions can authenticate via Workload Identity Federation / OIDC with no key file on disk.
+- **Drop-in for gcloud users.** If `gcloud auth application-default login` already works on your machine, this CLI runs with zero additional configuration.
+
+## Background & related links
+
+ADC and Vertex AI primer — start here if you are new to either:
+
+- [Application Default Credentials — overview](https://cloud.google.com/docs/authentication/application-default-credentials) — what ADC is and how Google's client libraries discover credentials.
+- [Set up Application Default Credentials](https://cloud.google.com/docs/authentication/provide-credentials-adc) — how to provide ADC for local development, services, and CI.
+- [Vertex AI generative AI documentation](https://cloud.google.com/vertex-ai/generative-ai/docs) — Vertex AI's generative model surface, including image generation.
+- [Gemini 3 Pro Image (Nano Banana Pro) on Vertex AI](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image) — the model this CLI calls.
+- [google-auth-library-nodejs](https://github.com/googleapis/google-auth-library-nodejs) — the official Node.js library this CLI uses to obtain ADC tokens.
+- [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation) — keyless authentication from GitHub Actions, GitLab, AWS, and other external workloads.
 
 ## Why nanobanana-adc?
 
@@ -52,6 +75,8 @@ gcloud auth application-default login
 
 nanobanana-adc --prompt "a cat in space" --output cat.png
 ```
+
+> See [Set up Application Default Credentials](https://cloud.google.com/docs/authentication/provide-credentials-adc) for the full ADC setup flow.
 
 ## Usage
 
