@@ -16,6 +16,7 @@ import {
   type DoctorEnv,
 } from './doctor.js';
 import { runAuthLogin, type LoginCliOptions } from './auth-login.js';
+import { DEFAULT_MODEL } from './models.js';
 
 const CLI_VERSION = '0.7.0';
 
@@ -102,7 +103,7 @@ program
       .choices(['1K', '2K', '4K'])
       .default('1K'),
   )
-  .option('-m, --model <id>', 'model id', 'gemini-3-pro-image-preview')
+  .option('-m, --model <id>', 'model id', DEFAULT_MODEL)
   .option('--api-key <key>', 'Gemini API key (falls back to GEMINI_API_KEY / ADC)')
   .addOption(
     new Option('--person-generation <mode>', 'control person generation')

@@ -5,6 +5,7 @@ import * as http from 'node:http';
 import { sep } from 'node:path';
 import { execFile } from 'node:child_process';
 import { GoogleAuth } from 'google-auth-library';
+import { DEFAULT_MODEL } from './models.js';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types
@@ -251,7 +252,7 @@ export interface DoctorReport {
     };
   };
   model: {
-    default: 'gemini-3-pro-image-preview';
+    default: typeof DEFAULT_MODEL;
     note: 'requires GOOGLE_CLOUD_LOCATION=global on the ADC path';
   };
   adcSource: AdcSourceReport;
@@ -1017,7 +1018,7 @@ export async function buildDoctorReport(
       },
     },
     model: {
-      default: 'gemini-3-pro-image-preview',
+      default: DEFAULT_MODEL,
       note: 'requires GOOGLE_CLOUD_LOCATION=global on the ADC path',
     },
     adcSource,

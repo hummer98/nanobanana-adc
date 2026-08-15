@@ -92,8 +92,8 @@ nanobanana-adc -p "neon skyline at dusk" -a 16:9 -s 2K -o skyline.png
 # 3. Portrait, 4K
 nanobanana-adc -p "a lone lighthouse in a storm" --aspect 9:16 --size 4K
 
-# 4. Override model
-nanobanana-adc -p "retro poster art" --model gemini-3-pro-image-preview
+# 4. Override model (cheaper / faster Flash tier)
+nanobanana-adc -p "retro poster art" --model gemini-3.1-flash-image
 
 # 5. API-key fallback
 nanobanana-adc -p "a cat in space" --api-key "$GEMINI_API_KEY"
@@ -110,12 +110,32 @@ nanobanana-adc -p "a bustling plaza" --person-generation ALLOW_ADULT
 | `--output` | `-o` | `output.png` | Output file path. |
 | `--aspect` | `-a` | `1:1` | Aspect ratio. One of 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 21:9, 9:21, 5:4. |
 | `--size` | `-s` | `1K` | Image size. One of 1K, 2K, 4K. |
-| `--model` | `-m` | `gemini-3-pro-image-preview` | Model ID. |
+| `--model` | `-m` | `gemini-3-pro-image` | Model ID. |
 | `--api-key` | — | — | Explicit Gemini API key (overrides env and ADC). |
 | `--person-generation` | — | — | Control person generation. One of `ALLOW_ALL`, `ALLOW_ADULT`, `ALLOW_NONE` (case-insensitive). Omit to use the model default. |
 | `--no-embed-metadata` | — | embed | Disable embedding of the AIview-compatible `tEXt parameters` chunk in PNG output. JPEG output is unaffected (metadata is never embedded into JPEG in this release). |
 
-> Note on `--person-generation`: currently accepted on the Vertex AI (ADC) path. The AI Studio v1beta endpoint used by the `--api-key` / `GEMINI_API_KEY` path does not yet recognize this field for `gemini-3-pro-image-preview` and returns `400 Unknown name "personGeneration"`. There are also reports that some AI Studio API-key tiers may reject `ALLOW_ALL` with a 400 error (not yet confirmed for the Gemini API path). If you hit either, fall back to omitting the flag or use the ADC path.
+> Note on `--person-generation`: currently accepted on the Vertex AI (ADC) path. The AI Studio v1beta endpoint used by the `--api-key` / `GEMINI_API_KEY` path did not recognize this field for Gemini 3 Pro Image as of v0.6.0 and returned `400 Unknown name "personGeneration"`. There are also reports that some AI Studio API-key tiers may reject `ALLOW_ALL` with a 400 error (not yet confirmed for the Gemini API path). If you hit either, fall back to omitting the flag or use the ADC path.
+
+### Models
+
+`--model` takes any Gemini image model id; the CLI does not keep an allow-list,
+so newly released ids work without an upgrade. Current image models:
+
+| Model ID | Also known as | Notes |
+|----------|---------------|-------|
+| `gemini-3-pro-image` (default) | Nano Banana Pro | GA. Reasoning-heavy, up to 4K. On Vertex AI it is served **only from the global endpoint** — set `GOOGLE_CLOUD_LOCATION=global`. |
+| `gemini-3.1-flash-image` | Nano Banana 2 | Cheaper and lower-latency than Pro. |
+| `gemini-3.1-flash-lite-image` | Nano Banana 2 Lite | Fastest / cheapest tier, 1K output. |
+| `gemini-2.5-flash-image` | Nano Banana | GA, previous generation. |
+
+The older preview alias `gemini-3-pro-image-preview` still resolves but is
+superseded by the GA id above. `imagen-4.0-generate` is deprecated, and the
+`gemini-2.0-flash-image-generation-preview` / `gemini-2.5-flash-image-generation-preview`
+endpoints were retired in March 2026 in favour of `gemini-2.5-flash-image`.
+
+Region support varies per model. If a non-default model fails on the ADC path,
+check that it is available for your `GOOGLE_CLOUD_LOCATION` before filing a bug.
 
 ## Metadata
 
@@ -126,7 +146,7 @@ list of CLI options:
 
 ```
 <prompt>
-Steps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image-preview, Aspect: 1:1[, Person generation: ALLOW_ADULT]
+Steps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image, Aspect: 1:1[, Person generation: ALLOW_ADULT]
 ```
 
 `Steps: 1, Sampler: gemini` are placeholder fields required by AIview's
@@ -199,7 +219,7 @@ ADC source
   account:                          user@example.com
 
 Model
-  default:                          gemini-3-pro-image-preview
+  default:                          gemini-3-pro-image
   note:                             requires GOOGLE_CLOUD_LOCATION=global on the ADC path
 
 Warnings (0)

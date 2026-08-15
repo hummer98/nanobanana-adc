@@ -3,6 +3,24 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- Default model is now `gemini-3-pro-image` (GA on Vertex AI since
+  2026-05-28) instead of the `gemini-3-pro-image-preview` alias. Affects
+  `generate`'s `--model` default, the embedded `parameters` metadata, and
+  `doctor`'s `model.default` field (`nanobanana-adc-doctor/v1` schema shape
+  is unchanged — only the reported value). The preview id still resolves, so
+  `--model gemini-3-pro-image-preview` keeps working for now.
+- Default model id is defined once in `src/models.ts` (`DEFAULT_MODEL`) and
+  shared by `src/cli.ts` and `src/doctor.ts`.
+
+### Documentation
+- README / README.ja.md: new "Models" section listing the current image
+  models (`gemini-3-pro-image`, `gemini-3.1-flash-image`,
+  `gemini-3.1-flash-lite-image`, `gemini-2.5-flash-image`) plus deprecated
+  endpoints, and a note that `--model` has no allow-list.
+
 ## [0.7.0] - 2026-04-27
 
 ### Added

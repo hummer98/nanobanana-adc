@@ -36,12 +36,12 @@ test('buildParametersString: minimal case (prompt + 1K + aspect 1:1)', () => {
   const s = buildParametersString({
     prompt: 'a cat',
     sizePx: 1024,
-    model: 'gemini-3-pro-image-preview',
+    model: 'gemini-3-pro-image',
     aspect: '1:1',
   });
   assert.equal(
     s,
-    'a cat\nSteps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image-preview, Aspect: 1:1',
+    'a cat\nSteps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image, Aspect: 1:1',
   );
 });
 
@@ -49,13 +49,13 @@ test('buildParametersString: personGeneration token appended when provided', () 
   const s = buildParametersString({
     prompt: 'a cat',
     sizePx: 1024,
-    model: 'gemini-3-pro-image-preview',
+    model: 'gemini-3-pro-image',
     aspect: '1:1',
     personGeneration: 'ALLOW_ADULT',
   });
   assert.equal(
     s,
-    'a cat\nSteps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image-preview, Aspect: 1:1, Person generation: ALLOW_ADULT',
+    'a cat\nSteps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image, Aspect: 1:1, Person generation: ALLOW_ADULT',
   );
 });
 

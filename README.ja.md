@@ -91,7 +91,7 @@ nanobanana-adc -p "neon skyline at dusk" -a 16:9 -s 2K -o skyline.png
 nanobanana-adc -p "a lone lighthouse in a storm" --aspect 9:16 --size 4K
 
 # 4. モデル上書き
-nanobanana-adc -p "retro poster art" --model gemini-3-pro-image-preview
+nanobanana-adc -p "retro poster art" --model gemini-3.1-flash-image
 
 # 5. API キーでのフォールバック
 nanobanana-adc -p "a cat in space" --api-key "$GEMINI_API_KEY"
@@ -108,12 +108,34 @@ nanobanana-adc -p "にぎやかな広場" --person-generation ALLOW_ADULT
 | `--output` | `-o` | `output.png` | 出力ファイルパス。 |
 | `--aspect` | `-a` | `1:1` | アスペクト比。1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 21:9, 9:21, 5:4 のいずれか。 |
 | `--size` | `-s` | `1K` | 画像サイズ。1K, 2K, 4K のいずれか。 |
-| `--model` | `-m` | `gemini-3-pro-image-preview` | モデル ID。 |
+| `--model` | `-m` | `gemini-3-pro-image` | モデル ID。 |
 | `--api-key` | — | — | 明示的に渡す Gemini API キー（環境変数・ADC より優先）。 |
 | `--person-generation` | — | — | 人物生成の制御。`ALLOW_ALL` / `ALLOW_ADULT` / `ALLOW_NONE` のいずれか（大文字小文字を問わず受け付け）。未指定時はモデル既定。 |
 | `--no-embed-metadata` | — | 埋め込む | PNG への AIview 互換 `tEXt parameters` チャンクの埋め込みを無効化。JPEG 出力では元々埋め込みません（本リリースでは JPEG への埋め込みは対象外）。 |
 
-> `--person-generation` についての注記: 現状は Vertex AI (ADC) 経路でのみ受理されます。`--api-key` / `GEMINI_API_KEY` 経路で利用される AI Studio v1beta エンドポイントは、`gemini-3-pro-image-preview` においてまだこのフィールドを認識せず `400 Unknown name "personGeneration"` を返します。また、AI Studio の一部 API キー Tier では `ALLOW_ALL` が 400 エラーで弾かれるとの報告もあります（Gemini API 経路での再現は未確認）。いずれの場合も、フラグを省略するか ADC 経路に切り替えてください。
+> `--person-generation` についての注記: 現状は Vertex AI (ADC) 経路でのみ受理されます。`--api-key` / `GEMINI_API_KEY` 経路で利用される AI Studio v1beta エンドポイントは、v0.6.0 時点の Gemini 3 Pro Image においてこのフィールドを認識せず `400 Unknown name "personGeneration"` を返しました。また、AI Studio の一部 API キー Tier では `ALLOW_ALL` が 400 エラーで弾かれるとの報告もあります（Gemini API 経路での再現は未確認）。いずれの場合も、フラグを省略するか ADC 経路に切り替えてください。
+
+### モデル一覧
+
+`--model` は任意の Gemini 画像モデル ID を受け付けます。CLI 側に許可リストは
+持たないため、新しく公開された ID もアップグレードなしで指定できます。現行の
+画像生成モデル:
+
+| モデル ID | 通称 | 備考 |
+|-----------|------|------|
+| `gemini-3-pro-image`（既定） | Nano Banana Pro | GA。推論重視・最大 4K。Vertex AI では **global エンドポイント専用**（`GOOGLE_CLOUD_LOCATION=global` が必要）。 |
+| `gemini-3.1-flash-image` | Nano Banana 2 | Pro より低コスト・低レイテンシ。 |
+| `gemini-3.1-flash-lite-image` | Nano Banana 2 Lite | 最速・最安。出力は 1K。 |
+| `gemini-2.5-flash-image` | Nano Banana | GA。前世代。 |
+
+旧 preview エイリアス `gemini-3-pro-image-preview` は現在も解決されますが、
+上記の GA ID に置き換えられています。`imagen-4.0-generate` は非推奨、
+`gemini-2.0-flash-image-generation-preview` /
+`gemini-2.5-flash-image-generation-preview` は 2026 年 3 月に廃止され
+`gemini-2.5-flash-image` に統合されました。
+
+対応リージョンはモデルごとに異なります。既定以外のモデルが ADC 経路で失敗する
+場合は、まず `GOOGLE_CLOUD_LOCATION` で利用可能かを確認してください。
 
 ## メタデータ
 
@@ -124,7 +146,7 @@ nanobanana-adc -p "にぎやかな広場" --person-generation ALLOW_ADULT
 
 ```
 <プロンプト>
-Steps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image-preview, Aspect: 1:1[, Person generation: ALLOW_ADULT]
+Steps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image, Aspect: 1:1[, Person generation: ALLOW_ADULT]
 ```
 
 `Steps: 1, Sampler: gemini` は AIview の `parsePrompt`（`Steps:` で分割）
@@ -198,7 +220,7 @@ ADC source
   account:                          user@example.com
 
 Model
-  default:                          gemini-3-pro-image-preview
+  default:                          gemini-3-pro-image
   note:                             requires GOOGLE_CLOUD_LOCATION=global on the ADC path
 
 Warnings (0)
