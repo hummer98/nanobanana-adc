@@ -1,6 +1,6 @@
 # 作業指示書
 
-seed.md のコンセプトをもとに `nanobanana-adc` を実装する。
+seed.html のコンセプトをもとに `nanobanana-adc` を実装する。
 各タスクは独立して着手できるよう粒度を揃えている。
 
 ---

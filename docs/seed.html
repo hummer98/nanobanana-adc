@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nanobanana-adc — コンセプト（現状反映版）</title>
+<style>
+  :root { --accent:#1e6fa8; --ink:#1c1c1e; --hi:#1e8449; --mid:#b9770e; --red:#c0392b; --lo:#8a8a8e; }
+  * { box-sizing: border-box; }
+  body { font-family:"Hiragino Sans","Noto Sans CJK JP","Yu Gothic",sans-serif; color:var(--ink); line-height:1.65; font-size:14px; max-width:1020px; margin:1.2rem auto; padding:0 1.2rem; }
+  header { border-bottom:3px solid var(--accent); padding-bottom:.4rem; margin-bottom:.6rem; }
+  header h1 { font-size:19px; margin:0 0 .2rem; }
+  header .tag { color:var(--accent); font-weight:bold; font-size:13px; }
+  header .meta { color:#777; font-size:11px; }
+  h2 { font-size:13.5px; color:#fff; background:var(--accent); padding:.24rem .55rem; margin:1.2rem 0 .4rem; border-radius:3px; }
+  h3 { font-size:12.5px; margin:.8rem 0 .25rem; color:var(--accent); }
+  ul,ol { margin:.2rem 0; padding-left:1.2rem; } li { margin:.16rem 0; } p { margin:.3rem 0; }
+  a { color:var(--accent); }
+  table { border-collapse:collapse; width:100%; margin:.35rem 0 .6rem; font-size:12px; }
+  th,td { border:1px solid #bbb; padding:.26rem .42rem; text-align:left; vertical-align:top; }
+  th { background:#eaf3f9; } td.c { text-align:center; white-space:nowrap; }
+  .note { background:#fff8e1; border-left:4px solid #e0a800; padding:.4rem .65rem; margin:.45rem 0; font-size:12px; }
+  .gap { background:#e9f7ef; border-left:4px solid #28a745; padding:.4rem .65rem; margin:.45rem 0; font-size:12px; }
+  .warn { background:#fdecea; border-left:4px solid #c0392b; padding:.4rem .65rem; margin:.45rem 0; font-size:12px; }
+  code { background:#eaf3f9; border-radius:3px; padding:.02rem .3rem; font-size:12px; font-family:"SF Mono",Menlo,Consolas,monospace; }
+  pre { background:#f6f8fa; border:1px solid #d8dee4; border-radius:4px; padding:.5rem .7rem; overflow-x:auto; font-size:12px; line-height:1.5; }
+  pre code { background:none; padding:0; }
+  .src { font-size:10.5px; color:#777; }
+  .del { color:var(--lo); text-decoration:line-through; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="tag">nanobanana-adc — Concept</div>
+  <h1>コンセプト — ADC 対応 Gemini 3 Pro Image CLI</h1>
+  <div class="meta">初版 2026-04-24（<code>docs/seed.md</code>）／ 現状反映 2026-08-16 ／ 対象バージョン v0.7.0 + Unreleased ／ 関連: <a href="./tasks.md">tasks.md</a>・<a href="../CLAUDE.md">CLAUDE.md</a>・<a href="../CHANGELOG.md">CHANGELOG.md</a></div>
+</header>
+
+<div class="gap"><b>TL;DR</b>：Google Nano Banana Pro（Gemini 3 Pro Image）の画像生成 CLI。<b>唯一の差別化軸は ADC（Application Default Credentials）対応</b>。既存の Claude Code image skill は例外なく <code>GEMINI_API_KEY</code> しか受け付けず、Vertex AI + ADC 構成の企業環境・CI/CD・Cloud Run が空白地帯になっている。そこだけを埋める。当初構想（v0）から実装は 3 点で拡張された —— <code>doctor</code> による診断、<code>auth login</code> による ADC セットアップ、PNG メタデータ埋め込み。いずれも「ADC 経路を実際に通せるようにする」ための追加であり、差別化軸そのものは動いていない。</div>
+
+<h2 id="sec-what">1. 何を作るか</h2>
+
+<p>Google Nano Banana Pro（Gemini 3 Pro Image）を使った画像生成 CLI。<b>唯一の差別化軸は ADC（Application Default Credentials）対応</b>である。</p>
+
+<p>既存の Claude Code skill（cc-nano-banana, ccskill-nanobanana, skill-nano-banana 等）はすべて <code>GEMINI_API_KEY</code> 環境変数のみ対応しており、Vertex AI + ADC 構成では使えない。企業環境・CI/CD・Cloud Run 等で Vertex AI を使うユーザーの空白地帯を埋める。</p>
+
+<div class="note"><b>この軸を壊す変更は regression である。</b>API キー経路はカジュアルユーザー向けのフォールバックにすぎず、ADC 経路の劣化と引き換えにしてよい機能は存在しない（<a href="../CLAUDE.md">CLAUDE.md</a> 設計原則）。</div>
+
+<h2 id="sec-diff">2. 当初構想からの差分（v0 → v0.7.0）</h2>
+
+<p>初版 <code>seed.md</code>（2026-04-24）は「generate 一本の CLI」を想定していた。実装は以下の点で構想を超えている。差分はすべて <b>ADC 経路の実用性</b>に由来する。</p>
+
+<table>
+  <tr><th style="width:22%">項目</th><th style="width:34%">当初構想</th><th>現状（v0.7.0 + Unreleased）</th></tr>
+  <tr>
+    <td>サブコマンド</td>
+    <td>generate のみ（暗黙）</td>
+    <td><code>generate</code>（既定）／ <code>doctor</code>（v0.4.0〜）／ <code>auth login</code>（v0.7.0〜）の 3 系統</td>
+  </tr>
+  <tr>
+    <td>既定モデル</td>
+    <td><code>gemini-3-pro-image-preview</code></td>
+    <td><b><code>gemini-3-pro-image</code></b>（2026-05-28 に Vertex AI で GA）。preview alias も引き続き解決する</td>
+  </tr>
+  <tr>
+    <td>Vertex 呼び出し</td>
+    <td><code>@google/generative-ai</code> の <code>GOOGLE_GENAI_USE_VERTEXAI=true</code> モード</td>
+    <td>Vertex 経路は <b>生 fetch</b>、AI Studio 経路のみ SDK。<code>location=global</code> がリージョン接頭辞なしホストを要求するため SDK では表現できなかった（§6）</td>
+  </tr>
+  <tr>
+    <td>診断</td>
+    <td>（なし）</td>
+    <td><code>doctor</code> が env / ADC / quota project / gcloud config dir を診断。JSON schema <code>nanobanana-adc-doctor/v1</code> として互換維持</td>
+  </tr>
+  <tr>
+    <td>ADC セットアップ</td>
+    <td>ユーザーが <code>gcloud</code> を直接叩く前提</td>
+    <td><code>auth login</code> が <code>gcloud auth application-default login</code> を <code>CLOUDSDK_CONFIG</code> 解決込みでラップ</td>
+  </tr>
+  <tr>
+    <td>出力</td>
+    <td>PNG を保存するだけ</td>
+    <td>AIview 互換の <code>parameters</code> メタデータを PNG に埋め込む（<code>--no-embed-metadata</code> で無効化）</td>
+  </tr>
+  <tr>
+    <td>スコープ外</td>
+    <td>画像編集 / バッチ生成 / MCP サーバ化</td>
+    <td><b>変更なし</b>。依然としてスコープ外（§9）</td>
+  </tr>
+</table>
+
+<h2 id="sec-dist">3. 配布形態</h2>
+
+<p>1 つのリポジトリで 2 通りの配布を兼ねる。<b>コードベースを fork しない</b>——同じ <code>dist/cli.js</code>・同じ <code>bin/nanobanana-adc</code> dispatcher を両方が使う。</p>
+
+<table>
+  <tr><th style="width:32%">用途</th><th>方法</th></tr>
+  <tr><td>Claude Code plugin</td><td><code>/plugin marketplace add hummer98/nanobanana-adc</code></td></tr>
+  <tr><td>スタンドアロン CLI</td><td><code>npm install -g nanobanana-adc</code> / <code>npx nanobanana-adc</code></td></tr>
+  <tr><td>OpenCode 等の他 AI ツール</td><td><code>npm install -g</code> 後にそのまま利用</td></tr>
+</table>
+
+<div class="note"><b>Claude Code への隠れた結合を作らない。</b>CLI は任意のシェルで単体動作しなければならない。plugin 配線（SessionStart フック・SKILL.md）は<b>周縁</b>に置き、<code>src/</code> には <code>CLAUDE_PLUGIN_ROOT</code> 等の Claude Code 固有環境変数を持ち込まない。</div>
+
+<h2 id="sec-stack">4. 技術スタック</h2>
+
+<table>
+  <tr><th style="width:22%">層</th><th>採用</th></tr>
+  <tr><td>言語</td><td>TypeScript 5.9.3（strict mode）</td></tr>
+  <tr><td>ランタイム</td><td>Node.js &gt;= 18（Claude Code 環境に必ず存在する）</td></tr>
+  <tr><td>認証</td><td><code>google-auth-library</code> 10.6.2 による ADC。<code>GEMINI_API_KEY</code> フォールバックも提供</td></tr>
+  <tr><td>API</td><td>Vertex AI 経路は生 <code>fetch</code>。AI Studio 経路は <code>@google/generative-ai</code> 0.24.1</td></tr>
+  <tr><td>CLI フレームワーク</td><td><code>commander</code> 14.0.3</td></tr>
+  <tr><td>テスト</td><td><code>node --test</code> + <code>tsx</code>（外部テストランナーを入れない）</td></tr>
+</table>
+
+<div class="warn"><b>課金の発生する実モデル呼び出しを CI の既定パスで回さない。</b>テストは <code>png</code> / <code>generate</code> / <code>doctor</code> / <code>auth-login</code> の 4 本すべてユニットテストであり、Vertex AI を叩かない。</div>
+
+<h2 id="sec-layout">5. リポジトリ構成とファイル責務</h2>
+
+<pre><code>nanobanana-adc/
+  src/
+    cli.ts          ← commander で引数解析し generate() / doctor / auth login を呼ぶ
+    auth.ts         ← 認証モード解決・access token 取得・エラー時 exit
+    auth-login.ts   ← gcloud auth application-default login のラップ
+    generate.ts     ← Vertex AI fetch / AI Studio SDK 呼び分け、画像保存
+    doctor.ts       ← 環境・認証状態の診断（モデル API は呼ばない）
+    models.ts       ← DEFAULT_MODEL の単一定義点
+    png.ts          ← AIview 互換 parameters メタデータの PNG 埋め込み
+    *.test.ts       ← node --test 用ユニットテスト
+  bin/
+    nanobanana-adc  ← shebang dispatcher（dist/cli.js を呼ぶだけ）
+  .claude-plugin/
+    plugin.json     ← Plugin manifest + SessionStart hooks
+    marketplace.json
+  skills/nanobanana-adc/
+    SKILL.md        ← Claude Code が読む skill 定義
+  docs/
+    seed.html       ← 本文書（コンセプト）
+    tasks.md        ← 実装計画
+</code></pre>
+
+<div class="note"><code>dist/</code> は手編集しない。常に <code>tsc</code> で再生成する。</div>
+
+<h2 id="sec-cli">6. CLI インターフェース</h2>
+
+<h3>6-1. generate（既定サブコマンド）</h3>
+
+<pre><code># 基本（generate は省略可）
+nanobanana-adc --prompt "a cat in space" --output cat.png
+
+# サイズ・アスペクト比
+nanobanana-adc --prompt "..." --aspect 16:9 --size 2K
+
+# モデル指定（既定: gemini-3-pro-image）
+nanobanana-adc --prompt "..." --model gemini-3.1-flash-image
+
+# API キーを明示（既定は ADC）
+nanobanana-adc --prompt "..." --api-key $GEMINI_API_KEY
+</code></pre>
+
+<table>
+  <tr><th style="width:30%">オプション</th><th style="width:18%">既定</th><th>説明</th></tr>
+  <tr><td><code>-p, --prompt &lt;text&gt;</code></td><td class="c">（必須）</td><td>プロンプト</td></tr>
+  <tr><td><code>-o, --output &lt;path&gt;</code></td><td class="c"><code>output.png</code></td><td>出力先パス</td></tr>
+  <tr><td><code>-a, --aspect &lt;ratio&gt;</code></td><td class="c"><code>1:1</code></td><td>1:1 / 16:9 / 9:16 / 4:3 / 3:4 / 3:2 / 2:3 / 21:9 / 9:21 / 5:4</td></tr>
+  <tr><td><code>-s, --size &lt;size&gt;</code></td><td class="c"><code>1K</code></td><td>1K / 2K / 4K</td></tr>
+  <tr><td><code>-m, --model &lt;id&gt;</code></td><td class="c"><code>gemini-3-pro-image</code></td><td>モデル id。<b>allow-list は持たない</b>（新モデルに追従できるように）</td></tr>
+  <tr><td><code>--api-key &lt;key&gt;</code></td><td class="c">—</td><td>明示指定。認証優先順位の第 1 位（§8）</td></tr>
+  <tr><td><code>--person-generation &lt;mode&gt;</code></td><td class="c">—</td><td>人物生成の制御</td></tr>
+  <tr><td><code>--no-embed-metadata</code></td><td class="c">埋め込む</td><td>AIview 互換 <code>parameters</code> の埋め込みを無効化（PNG のみ）</td></tr>
+</table>
+
+<h3>6-2. doctor（v0.4.0〜）</h3>
+
+<p>環境・認証状態を診断する。<b>モデル API は呼ばない</b>ので課金は発生せず、<b>常に exit 0</b> を返す（スクリプトから安全に叩ける）。</p>
+
+<pre><code>nanobanana-adc doctor            # 人間向けテキスト
+nanobanana-adc doctor --json     # 機械可読（schema: nanobanana-adc-doctor/v1）
+nanobanana-adc doctor --verbose  # ACCESS_TOKEN 先頭 8 文字・gcloud raw・runtime
+nanobanana-adc doctor --probe-metadata-server   # 169.254.169.254 を 300ms probe
+</code></pre>
+
+<p>診断項目は env 読取・ADC probe・quota project 照合・gcloud config dir 解決（<code>$CLOUDSDK_CONFIG</code> / <code>$HOME/.config/gcloud</code>）と、そこから計算される warning 群。<b>JSON schema は <code>nanobanana-adc-doctor/v1</code> として互換を維持する</b>。</p>
+
+<h3>6-3. auth login（v0.7.0〜）</h3>
+
+<p><code>gcloud auth application-default login</code> を <code>CLOUDSDK_CONFIG</code> のインライン解決と quota project 設定込みでラップする。ADC のパーミッション設定でつまずく（403）という DX 上の穴を埋めるためのコマンドで、<code>doctor</code> が報告する config dir / quota project と<b>同じ解決規則</b>に揃えてある。</p>
+
+<pre><code>nanobanana-adc auth login --dry-run          # 解決結果だけ出して exit 0
+nanobanana-adc auth login --config-dir ./gcloud-ci --quota-project my-proj
+</code></pre>
+
+<table>
+  <tr><th style="width:30%">オプション</th><th>説明</th></tr>
+  <tr><td><code>--config-dir &lt;path&gt;</code></td><td><code>CLOUDSDK_CONFIG</code> を上書き</td></tr>
+  <tr><td><code>--quota-project &lt;id&gt;</code></td><td>login 後に <code>set-quota-project</code> を実行</td></tr>
+  <tr><td><code>--no-quota-project</code></td><td>quota project 設定をスキップ</td></tr>
+  <tr><td><code>--scopes &lt;csv&gt;</code></td><td><code>--scopes=&lt;csv&gt;</code> を gcloud に渡す</td></tr>
+  <tr><td><code>--dry-run</code></td><td>解決した実行計画を出して exit 0（gcloud を起動しない）</td></tr>
+  <tr><td><code>--verbose</code></td><td>実際に渡す argv を表示</td></tr>
+</table>
+
+<p><b><code>CLOUDSDK_CONFIG</code> の解決順位</b>：<code>--config-dir</code> → <code>$CLOUDSDK_CONFIG</code>（そのまま継承）→ <code>$GOOGLE_APPLICATION_CREDENTIALS</code> の dirname（basename が <code>application_default_credentials.json</code> のときのみ）→ gcloud の OS 既定（<code>CLOUDSDK_CONFIG</code> 未設定）。</p>
+
+<p><b>quota project の解決順位</b>：<code>--quota-project</code> → <code>--no-quota-project</code>（スキップ）→ <code>$GOOGLE_CLOUD_PROJECT</code> → スキップ + notice。</p>
+
+<h2 id="sec-models">7. モデル</h2>
+
+<table>
+  <tr><th style="width:34%">モデル id</th><th>位置づけ</th></tr>
+  <tr><td><code>gemini-3-pro-image</code></td><td><b>既定</b>。Nano Banana Pro。2026-05-28 に Vertex AI で GA</td></tr>
+  <tr><td><code>gemini-3.1-flash-image</code></td><td>高速・低コスト</td></tr>
+  <tr><td><code>gemini-3.1-flash-lite-image</code></td><td>さらに軽量</td></tr>
+  <tr><td><code>gemini-2.5-flash-image</code></td><td>旧世代</td></tr>
+  <tr><td><code>gemini-3-pro-image-preview</code></td><td>GA 前の preview alias。まだ解決するが GA id を推奨</td></tr>
+</table>
+
+<div class="warn"><b><code>location=global</code> のリージョンレスホスト。</b>Gemini 3 Pro Image は <code>aiplatform.googleapis.com</code>（リージョン接頭辞なし）からのみ提供される。<code>src/generate.ts</code> にはこの分岐が存在し、<b>削除してはならない</b>。通常の Vertex AI エンドポイント命名（<code>&lt;region&gt;-aiplatform.googleapis.com</code>）を素直に適用すると 404 になる。</div>
+
+<div class="note"><code>--model</code> に allow-list を持たせていないのは意図的である。新しい Gemini image モデル / リージョンが出たときに CLI 側のリリースを待たずに使えるようにするため。</div>
+
+<h2 id="sec-auth">8. 認証</h2>
+
+<h3>8-1. 環境変数</h3>
+
+<table>
+  <tr><th style="width:34%">変数</th><th style="width:14%">必須</th><th>説明</th></tr>
+  <tr><td><code>GOOGLE_CLOUD_PROJECT</code></td><td class="c">ADC 使用時 ✓</td><td>GCP プロジェクト ID</td></tr>
+  <tr><td><code>GOOGLE_CLOUD_LOCATION</code></td><td class="c">ADC 使用時 ✓</td><td>リージョン（Gemini 3 Pro Image は <code>global</code>）</td></tr>
+  <tr><td><code>GOOGLE_GENAI_USE_VERTEXAI</code></td><td class="c">ADC 使用時 ✓</td><td><code>true</code> 固定</td></tr>
+  <tr><td><code>GOOGLE_APPLICATION_CREDENTIALS</code></td><td class="c">任意</td><td>ADC ファイルパス（未設定時は gcloud 認証を使用）</td></tr>
+  <tr><td><code>CLOUDSDK_CONFIG</code></td><td class="c">任意</td><td>gcloud config dir 全体を OS 既定から隔離する</td></tr>
+  <tr><td><code>GEMINI_API_KEY</code></td><td class="c">フォールバック</td><td>ADC 未設定時に使用</td></tr>
+</table>
+
+<h3>8-2. 認証優先順位（<code>src/auth.ts</code>）</h3>
+
+<ol>
+  <li><code>--api-key &lt;key&gt;</code> CLI フラグ</li>
+  <li><code>GEMINI_API_KEY</code> 環境変数</li>
+  <li><b>ADC</b>（<code>GoogleAuth</code> → access token）← <b>本命</b></li>
+</ol>
+
+<div class="note"><b>この順序を入れ替えない。</b>シェルに <code>GEMINI_API_KEY</code> を置いたまま <code>--api-key</code> を明示するユーザーは、明示した鍵が勝つことを期待している。</div>
+
+<h3>8-3. 認証の曖昧さでは黙らない</h3>
+
+<p><code>[auth] using: adc</code> / <code>[auth] using: api-key</code> を<b>常に</b>出力する。コードを読まずにどちらの経路が発火したか判別できることが要件である。</p>
+
+<h2 id="sec-plugin">9. Claude Code plugin 固有の設定</h2>
+
+<p><code>.claude-plugin/plugin.json</code> に <code>SessionStart</code> フックを定義し、<code>${CLAUDE_PLUGIN_DATA}</code> に <code>node_modules</code> を展開したうえで <code>${CLAUDE_PLUGIN_ROOT}/node_modules</code> から symlink を張る。これによりインストール後の初回セッションから依存なしで動作する。</p>
+
+<pre><code>{
+  "hooks": {
+    "SessionStart": [{
+      "hooks": [
+        { "type": "command",
+          "command": "diff -q \"${CLAUDE_PLUGIN_ROOT}/package.json\" \"${CLAUDE_PLUGIN_DATA}/package.json\" >/dev/null 2>&1 || (... npm install --omit=dev ...)" },
+        { "type": "command",
+          "command": "[ -e \"${CLAUDE_PLUGIN_ROOT}/node_modules\" ] || ln -sfn \"${CLAUDE_PLUGIN_DATA}/node_modules\" \"${CLAUDE_PLUGIN_ROOT}/node_modules\"" }
+      ]
+    }]
+  }
+}</code></pre>
+
+<h2 id="sec-scope">10. スコープ外（継続）</h2>
+
+<p>以下は<b>初版から一貫してスコープ外</b>である。別リポジトリまたは feature flag で検討する。</p>
+
+<ul>
+  <li>画像編集モード（inpainting / outpainting）</li>
+  <li>バッチ生成（ファイルからプロンプトリストを読む）</li>
+  <li>MCP サーバーとしての配布</li>
+</ul>
+
+<p><b>補足（issue #14, 2026-08-19）</b>: <code>--reference</code>（参照画像入力）は
+上記「画像編集モード」には含まれない。マスクを取って既存画像の一部を書き換える編集ではなく、
+参照画像を条件として与える<b>新規生成</b>（キャラクター一貫性）であり、
+<code>generateContent</code> の <code>contents[].parts[]</code> に <code>inline_data</code> を
+足すだけで実現できる。inpainting / outpainting は引き続きスコープ外。</p>
+
+<h2 id="sec-priority">11. 優先順位</h2>
+
+<table>
+  <tr><th style="width:8%" class="c">順</th><th style="width:30%">領域</th><th>理由</th></tr>
+  <tr><td class="c">1</td><td>ADC 経路のバグ修正</td><td>差別化軸を壊すバグは最優先</td></tr>
+  <tr><td class="c">2</td><td>モデル互換性</td><td>新しい Gemini image モデル id / region への追従</td></tr>
+  <tr><td class="c">3</td><td>配布経路の整備</td><td>npm / Claude Code plugin / marketplace のどれか一方でも壊れたら修正</td></tr>
+  <tr><td class="c">4</td><td>ドキュメント</td><td>README / README.ja.md / CHANGELOG を挙動と同期</td></tr>
+  <tr><td class="c">5</td><td>新機能</td><td>§10 のとおりスコープ外</td></tr>
+</table>
+
+<p class="src">出典: <code>docs/seed.md</code>（初版 2026-04-24, 本文書に置換）／ <code>CLAUDE.md</code> ／ <code>CHANGELOG.md</code> v0.4.0–v0.7.0 + Unreleased ／ <code>src/cli.ts</code> ／ <code>src/models.ts</code> ／ <code>package.json</code> v0.7.0 ／ <code>.claude-plugin/plugin.json</code></p>
+
+</body>
+</html>

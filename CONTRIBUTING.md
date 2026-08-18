@@ -24,7 +24,7 @@ nanobanana-adc/
 ├── .claude/commands/release.md  # /release slash command (Master-invoked)
 ├── CHANGELOG.md
 ├── README.md / README.ja.md
-└── docs/seed.md / docs/tasks.md # Original spec + implementation plan
+└── docs/seed.html / docs/tasks.md # Concept (current) + implementation plan
 ```
 
 ## 開発環境セットアップ

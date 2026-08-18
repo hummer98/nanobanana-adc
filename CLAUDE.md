@@ -30,7 +30,7 @@ Provide a zero-friction image generation CLI that works in both:
 2. **モデル互換性** — 新しい Gemini image モデル ID / region が出たら追従。
 3. **配布経路の整備** — npm / Claude Code plugin / marketplace のどちらか一方でも壊れたら修正。
 4. **ドキュメント** — README / README.ja.md / CHANGELOG は挙動と同期させる。
-5. **新機能** — 画像編集 (inpainting / outpainting)、バッチ生成、MCP サーバ化は seed.md で「スコープ外」としており、別リポ or feature flag で検討。
+5. **新機能** — 画像編集 (inpainting / outpainting)、バッチ生成、MCP サーバ化は docs/seed.html で「スコープ外」としており、別リポ or feature flag で検討。
 
 ## 認証優先順位（src/auth.ts）
 
