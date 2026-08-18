@@ -59,6 +59,28 @@ test('buildParametersString: personGeneration token appended when provided', () 
   );
 });
 
+test('buildParametersString: References token appended when references used', () => {
+  const s = buildParametersString({
+    prompt: 'a cat',
+    sizePx: 1024,
+    model: 'gemini-3-pro-image',
+    aspect: '1:1',
+    referenceCount: 2,
+  });
+  assert.match(s, /Aspect: 1:1, References: 2$/);
+});
+
+test('buildParametersString: zero references leaves the token out', () => {
+  const s = buildParametersString({
+    prompt: 'a cat',
+    sizePx: 1024,
+    model: 'gemini-3-pro-image',
+    aspect: '1:1',
+    referenceCount: 0,
+  });
+  assert.ok(!s.includes('References'));
+});
+
 test('buildParametersString: 2K / 4K sizes map to 2048 / 4096', () => {
   const s2 = buildParametersString({
     prompt: 'x',

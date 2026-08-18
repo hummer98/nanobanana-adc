@@ -100,6 +100,14 @@ nanobanana-adc -p "a cat in space" --api-key "$GEMINI_API_KEY"
 
 # 6. Restrict person generation
 nanobanana-adc -p "a bustling plaza" --person-generation ALLOW_ADULT
+
+# 7. Reference image — keep the same character across shots
+nanobanana-adc -p "the same person, surprised. bust shot" \
+  --reference master.png --aspect 3:4 -o surprised.png
+
+# 8. Multiple references (up to 14)
+nanobanana-adc -p "the two of them in the same room, wide shot" \
+  -r alice.png -r bob.png -o scene.png
 ```
 
 ### Options
@@ -112,8 +120,36 @@ nanobanana-adc -p "a bustling plaza" --person-generation ALLOW_ADULT
 | `--size` | `-s` | `1K` | Image size. One of 1K, 2K, 4K. |
 | `--model` | `-m` | `gemini-3-pro-image` | Model ID. |
 | `--api-key` | — | — | Explicit Gemini API key (overrides env and ADC). |
+| `--reference` | `-r` | — | Reference image path for character-consistent generation. Repeatable, up to 14 images (PNG / JPEG / WebP). |
 | `--person-generation` | — | — | Control person generation. One of `ALLOW_ALL`, `ALLOW_ADULT`, `ALLOW_NONE` (case-insensitive). Omit to use the model default. |
 | `--no-embed-metadata` | — | embed | Disable embedding of the AIview-compatible `tEXt parameters` chunk in PNG output. JPEG output is unaffected (metadata is never embedded into JPEG in this release). |
+
+### Reference images (`--reference`)
+
+Gemini 3 Pro Image accepts up to **14 reference images** in one request and can
+keep the identity of up to **5 people** consistent across them — useful for
+generating expression variants, bust shots, and character sheets of the same
+person.
+
+```bash
+nanobanana-adc \
+  --prompt "the same person, surprised. bust shot, late-Showa photographic look" \
+  --reference master.png \
+  --aspect 3:4 --output surprised.png
+```
+
+- Repeat `--reference` / `-r` once per image; the CLI rejects more than 14.
+- PNG / JPEG / WebP are accepted. The mime type is detected from the file's
+  magic bytes, falling back to the extension.
+- The images are sent as `inline_data` parts *before* the prompt text, on both
+  the ADC (Vertex AI) and API-key (AI Studio) paths.
+- Total encoded payload is capped at 20 MB — downscale the references if you hit
+  the limit.
+- When references are used, the embedded PNG metadata gains a `References: <n>`
+  field and the completion line reports `references=<n>`.
+
+This is reference-conditioned **generation**, not mask-based editing;
+inpainting / outpainting remain out of scope.
 
 > Note on `--person-generation`: currently accepted on the Vertex AI (ADC) path. The AI Studio v1beta endpoint used by the `--api-key` / `GEMINI_API_KEY` path did not recognize this field for Gemini 3 Pro Image as of v0.6.0 and returned `400 Unknown name "personGeneration"`. There are also reports that some AI Studio API-key tiers may reject `ALLOW_ALL` with a 400 error (not yet confirmed for the Gemini API path). If you hit either, fall back to omitting the flag or use the ADC path.
 

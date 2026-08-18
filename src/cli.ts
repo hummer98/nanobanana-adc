@@ -9,6 +9,7 @@ import {
   type GenerateOptions,
   type GenerateSize,
 } from './generate.js';
+import { MAX_REFERENCE_IMAGES } from './reference.js';
 import {
   buildDoctorReport,
   renderDoctorJSON,
@@ -19,6 +20,19 @@ import { runAuthLogin, type LoginCliOptions } from './auth-login.js';
 import { DEFAULT_MODEL } from './models.js';
 
 const CLI_VERSION = '0.7.0';
+
+function collectReference(value: string, previous: string[]): string[] {
+  if (value.trim() === '') {
+    throw new InvalidArgumentError('--reference must be a non-empty path');
+  }
+  const next = [...previous, value];
+  if (next.length > MAX_REFERENCE_IMAGES) {
+    throw new InvalidArgumentError(
+      `at most ${MAX_REFERENCE_IMAGES} reference images are accepted`,
+    );
+  }
+  return next;
+}
 
 function nonEmpty(label: string) {
   return (value: string): string => {
@@ -105,6 +119,12 @@ program
   )
   .option('-m, --model <id>', 'model id', DEFAULT_MODEL)
   .option('--api-key <key>', 'Gemini API key (falls back to GEMINI_API_KEY / ADC)')
+  .option(
+    '-r, --reference <path>',
+    `reference image for character-consistent generation (repeatable, max ${MAX_REFERENCE_IMAGES})`,
+    collectReference,
+    [] as string[],
+  )
   .addOption(
     new Option('--person-generation <mode>', 'control person generation')
       .choices([...PERSON_GENERATION_MODES])
@@ -131,6 +151,7 @@ program
     apiKey?: string;
     personGeneration?: string;
     embedMetadata: boolean;
+    reference: string[];
   }) => {
     assertAspect(opts.aspect);
 
@@ -142,6 +163,7 @@ program
       model: opts.model,
       apiKey: opts.apiKey,
       embedMetadata: opts.embedMetadata,
+      references: opts.reference,
     };
 
     if (opts.personGeneration) {

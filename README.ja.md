@@ -98,6 +98,14 @@ nanobanana-adc -p "a cat in space" --api-key "$GEMINI_API_KEY"
 
 # 6. 人物生成の制御
 nanobanana-adc -p "にぎやかな広場" --person-generation ALLOW_ADULT
+
+# 7. 参照画像 — 同一人物のまま別カットを生成
+nanobanana-adc -p "同じ人物が驚いた表情。バストショット" \
+  --reference master.png --aspect 3:4 -o surprised.png
+
+# 8. 参照画像を複数指定（最大 14 枚）
+nanobanana-adc -p "同じ部屋にいる二人。引きの構図" \
+  -r alice.png -r bob.png -o scene.png
 ```
 
 ### オプション一覧
@@ -110,8 +118,34 @@ nanobanana-adc -p "にぎやかな広場" --person-generation ALLOW_ADULT
 | `--size` | `-s` | `1K` | 画像サイズ。1K, 2K, 4K のいずれか。 |
 | `--model` | `-m` | `gemini-3-pro-image` | モデル ID。 |
 | `--api-key` | — | — | 明示的に渡す Gemini API キー（環境変数・ADC より優先）。 |
+| `--reference` | `-r` | — | キャラクター一貫性のための参照画像パス。複数回指定可能、最大 14 枚（PNG / JPEG / WebP）。 |
 | `--person-generation` | — | — | 人物生成の制御。`ALLOW_ALL` / `ALLOW_ADULT` / `ALLOW_NONE` のいずれか（大文字小文字を問わず受け付け）。未指定時はモデル既定。 |
 | `--no-embed-metadata` | — | 埋め込む | PNG への AIview 互換 `tEXt parameters` チャンクの埋め込みを無効化。JPEG 出力では元々埋め込みません（本リリースでは JPEG への埋め込みは対象外）。 |
+
+### 参照画像（`--reference`）
+
+Gemini 3 Pro Image は 1 リクエストあたり **最大 14 枚** の参照画像を受け取り、
+最大 **5 人** の人物の同一性を維持できます。同一人物の表情差分・バストショット・
+立ち絵などの素材制作に使えます。
+
+```bash
+nanobanana-adc \
+  --prompt "同じ人物が驚いた表情。バストショット、昭和後期の写真調" \
+  --reference master.png \
+  --aspect 3:4 --output surprised.png
+```
+
+- `--reference` / `-r` は画像 1 枚につき 1 回指定します。15 枚以上はエラーになります。
+- PNG / JPEG / WebP に対応。mime type はマジックバイトから判定し、判定できない場合は
+  拡張子にフォールバックします。
+- 画像は `inline_data` パートとしてプロンプトテキストの **前** に並べて送信されます
+  （ADC / Vertex AI 経路・API キー / AI Studio 経路の両方）。
+- エンコード後の合計サイズは 20 MB までです。超える場合は画像を縮小してください。
+- 参照画像を使うと、PNG メタデータに `References: <n>` フィールドが追加され、
+  完了行にも `references=<n>` が出力されます。
+
+これは参照画像を条件にした**新規生成**であり、マスクベースの編集ではありません。
+inpainting / outpainting は引き続きスコープ外です。
 
 > `--person-generation` についての注記: 現状は Vertex AI (ADC) 経路でのみ受理されます。`--api-key` / `GEMINI_API_KEY` 経路で利用される AI Studio v1beta エンドポイントは、v0.6.0 時点の Gemini 3 Pro Image においてこのフィールドを認識せず `400 Unknown name "personGeneration"` を返しました。また、AI Studio の一部 API キー Tier では `ALLOW_ALL` が 400 エラーで弾かれるとの報告もあります（Gemini API 経路での再現は未確認）。いずれの場合も、フラグを省略するか ADC 経路に切り替えてください。
 

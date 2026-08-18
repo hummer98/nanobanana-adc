@@ -29,6 +29,10 @@ nanobanana-adc --prompt "futuristic tokyo skyline" --aspect 16:9 --size 2K -o to
 
 # API key mode (explicit override)
 nanobanana-adc --prompt "..." --api-key "$GEMINI_API_KEY" -o out.png
+
+# Reference image — same character, new shot (repeat -r for up to 14 images)
+nanobanana-adc --prompt "the same person, surprised. bust shot" \
+  -r master.png --aspect 3:4 -o surprised.png
 ```
 
 ## Options
@@ -41,6 +45,7 @@ nanobanana-adc --prompt "..." --api-key "$GEMINI_API_KEY" -o out.png
 | `-s, --size`    | `1K`                         | `1K` / `2K` / `4K`.                                                               |
 | `-m, --model`   | `gemini-3-pro-image` | Override model id.                                                                |
 | `--api-key`     | —                            | Gemini API key. Falls back to `GEMINI_API_KEY` then ADC when omitted.             |
+| `-r, --reference` | —                          | Reference image for character-consistent generation. Repeatable, max 14 (PNG / JPEG / WebP). |
 
 ## Environment variables
 

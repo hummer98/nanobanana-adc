@@ -5,6 +5,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `generate`: `--reference <path>` / `-r` for reference-image input
+  (character-consistent generation, issue #14). Repeatable up to 14 images —
+  the per-request limit of Gemini 3 Pro Image, which keeps the identity of up
+  to 5 people consistent across references. PNG / JPEG / WebP are accepted;
+  the mime type is sniffed from magic bytes with an extension fallback. The
+  images are sent as `inline_data` parts ahead of the prompt text on **both**
+  the ADC (Vertex AI `generateContent`) and API-key (AI Studio SDK) paths.
+  Reference loading fails fast with a `[reference] ...` message on a missing
+  file, an empty file, an unsupported format, more than 14 images, or a total
+  encoded payload above 20 MB. When references are used, the embedded PNG
+  `parameters` metadata gains a `References: <n>` field and the completion
+  line reports `references=<n>`. Behaviour without `--reference` is
+  unchanged. This is reference-conditioned generation, not mask-based editing
+  — inpainting / outpainting stay out of scope (docs/seed.html §10).
+
 ### Changed
 - Default model is now `gemini-3-pro-image` (GA on Vertex AI since
   2026-05-28) instead of the `gemini-3-pro-image-preview` alias. Affects
@@ -16,6 +32,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   shared by `src/cli.ts` and `src/doctor.ts`.
 
 ### Documentation
+- README / README.ja.md: "Reference images (`--reference`)" section with
+  usage examples and limits; `skills/nanobanana-adc/SKILL.md` option table
+  updated. docs/seed.html §10 gained a note distinguishing reference-image
+  input from the still-out-of-scope inpainting / outpainting.
 - README / README.ja.md: new "Models" section listing the current image
   models (`gemini-3-pro-image`, `gemini-3.1-flash-image`,
   `gemini-3.1-flash-lite-image`, `gemini-2.5-flash-image`) plus deprecated

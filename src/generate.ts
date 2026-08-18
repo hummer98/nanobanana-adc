@@ -3,6 +3,11 @@ import { dirname, extname } from 'node:path';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { resolveAuth, type AuthResult } from './auth.js';
 import { insertTextChunkBeforeIend } from './png.js';
+import {
+  buildContentParts,
+  loadReferenceImages,
+  type ReferenceImage,
+} from './reference.js';
 
 type AdcAuth = Extract<AuthResult, { mode: 'adc' }>;
 type ApiKeyAuth = Extract<AuthResult, { mode: 'api-key' }>;
@@ -34,6 +39,8 @@ export interface GenerateOptions {
   apiKey?: string;
   personGeneration?: PersonGeneration;
   embedMetadata: boolean;
+  /** Reference image paths for character-consistent generation (max 14). */
+  references?: string[];
 }
 
 export const ASPECT_MAP: Record<GenerateAspect, string> = {
@@ -79,6 +86,7 @@ export interface ParametersStringOptions {
   model: string;
   aspect: GenerateAspect;
   personGeneration?: PersonGeneration;
+  referenceCount?: number;
 }
 
 export function buildParametersString(opts: ParametersStringOptions): string {
@@ -91,6 +99,9 @@ export function buildParametersString(opts: ParametersStringOptions): string {
   ];
   if (opts.personGeneration) {
     parts.push(`Person generation: ${opts.personGeneration}`);
+  }
+  if (opts.referenceCount) {
+    parts.push(`References: ${opts.referenceCount}`);
   }
   return `${opts.prompt}\n${parts.join(', ')}`;
 }
@@ -195,6 +206,7 @@ interface GeneratedImage {
 async function generateViaVertexFetch(
   auth: AdcAuth,
   options: GenerateOptions,
+  references: readonly ReferenceImage[],
 ): Promise<GeneratedImage> {
   const { accessToken, project, location } = auth;
 
@@ -209,7 +221,7 @@ async function generateViaVertexFetch(
 
   const body = {
     contents: [
-      { role: 'user', parts: [{ text: options.prompt }] },
+      { role: 'user', parts: buildContentParts(options.prompt, references) },
     ],
     generationConfig: {
       responseModalities: ['IMAGE'],
@@ -268,6 +280,7 @@ async function generateViaVertexFetch(
 async function generateViaSdk(
   auth: ApiKeyAuth,
   options: GenerateOptions,
+  references: readonly ReferenceImage[],
 ): Promise<GeneratedImage> {
   const client = new GoogleGenerativeAI(auth.apiKey);
 
@@ -287,7 +300,9 @@ async function generateViaSdk(
 
   let result;
   try {
-    result = await model.generateContent(options.prompt);
+    result = await model.generateContent([
+      ...buildContentParts(options.prompt, references),
+    ]);
   } catch (err) {
     throw new Error(
       `[generate] API error: ${(err as Error).message}`,
@@ -307,12 +322,14 @@ async function generateViaSdk(
 export async function generate(options: GenerateOptions): Promise<void> {
   const startedAt = Date.now();
 
+  const references = await loadReferenceImages(options.references ?? []);
+
   const auth = await resolveAuth(options.apiKey);
 
   const { base64, mimeType: declaredMime } =
     auth.mode === 'adc'
-      ? await generateViaVertexFetch(auth, options)
-      : await generateViaSdk(auth, options);
+      ? await generateViaVertexFetch(auth, options, references)
+      : await generateViaSdk(auth, options, references);
 
   const imageBytes = Buffer.from(base64, 'base64');
   const mimeType = resolveMimeType(declaredMime, imageBytes);
@@ -334,6 +351,9 @@ export async function generate(options: GenerateOptions): Promise<void> {
         ...(options.personGeneration
           ? { personGeneration: options.personGeneration }
           : {}),
+        ...(references.length > 0
+          ? { referenceCount: references.length }
+          : {}),
       })
     : null;
 
@@ -354,7 +374,10 @@ export async function generate(options: GenerateOptions): Promise<void> {
   );
 
   const elapsed = Date.now() - startedAt;
+  const referenceField =
+    references.length > 0 ? ` | references=${references.length}` : '';
   console.log(
-    `[generate] done | output=${actualPath} | model=${options.model} | elapsed_ms=${elapsed}`,
+    `[generate] done | output=${actualPath} | model=${options.model}` +
+      `${referenceField} | elapsed_ms=${elapsed}`,
   );
 }

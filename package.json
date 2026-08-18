@@ -43,7 +43,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx src/png.test.ts src/generate.test.ts src/doctor.test.ts src/auth-login.test.ts",
+    "test": "node --test --import tsx src/png.test.ts src/reference.test.ts src/generate.test.ts src/doctor.test.ts src/auth-login.test.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
