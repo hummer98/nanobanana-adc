@@ -5,6 +5,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- Dependencies: `google-auth-library` 10.6.2 → 10.7.0. Dev dependencies:
+  `typescript` 5.9.3 → 6.0.3, `@types/node` 20.19.39 → 25.9.0, `tsx` 4.21.0 →
+  4.22.2. Typecheck, the 173-test suite, the build and a `doctor` ADC probe all
+  pass on the new versions; no source changes were needed for TypeScript 6.
+- CI: `actions/checkout` and `actions/setup-node` pinned to v7.
+- `commander` stays on 14.0.3. 15.0.0 requires Node >= 22.12.0, which would
+  break the package's `engines: >=18` contract and the Node 20 CI matrix entry.
+
 ### Fixed
 - CI: the `validate-plugin` job's version-consistency check read the CLI
   version with a `.version('<x.y.z>')` grep, but `src/cli.ts` has passed a
