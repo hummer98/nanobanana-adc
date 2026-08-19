@@ -8,6 +8,14 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    # commander 15+ requires Node >= 22.12.0. This package declares
+    # `engines: >=18` and the CI matrix covers Node 20, so a major bump is a
+    # breaking change for consumers, not a routine update. Drop this ignore
+    # rule when the supported Node floor is deliberately raised.
+    ignore:
+      - dependency-name: commander
+        update-types:
+          - version-update:semver-major
     groups:
       google-apis:
         patterns:

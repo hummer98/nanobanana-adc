@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - CI: `actions/checkout` and `actions/setup-node` pinned to v7.
 - `commander` stays on 14.0.3. 15.0.0 requires Node >= 22.12.0, which would
   break the package's `engines: >=18` contract and the Node 20 CI matrix entry.
+  dependabot now ignores commander major bumps until the supported Node floor
+  is raised deliberately.
 
 ### Fixed
 - CI: the `validate-plugin` job's version-consistency check read the CLI
