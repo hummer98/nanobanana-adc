@@ -21,7 +21,7 @@ nanobanana-adc/
 │   └── nanobanana-adc           # shebang dispatcher → dist/cli.js
 ├── dist/                        # Build output (tsc), gitignored
 ├── .github/workflows/           # CI (push/PR) + Release (tag push)
-├── .claude/commands/release.md  # /release slash command (Master-invoked)
+├── .claude/commands/release.md  # /release slash command
 ├── CHANGELOG.md
 ├── README.md / README.ja.md
 └── docs/seed.html / docs/tasks.md # Concept (current) + implementation plan
@@ -64,14 +64,14 @@ env -u GEMINI_API_KEY ./bin/nanobanana-adc --prompt "a cat" --output /tmp/out.pn
 
 ## リリース
 
-Run from a Master session (Claude Code) inside this repo:
+Run `/release` from a Claude Code session inside this repo:
 
 ```
 /release 0.2.0        # explicit version
 /release              # auto-infer from commits since last tag
 ```
 
-`/release` creates a `--exclusive` task that a Conductor drains and executes:
+The session executes the release directly:
 
 0. **Preflight** — `claude plugin validate .` + version consistency check across
    `package.json` / `.claude-plugin/plugin.json` / `.claude-plugin/marketplace.json`
@@ -82,9 +82,8 @@ Run from a Master session (Claude Code) inside this repo:
 3. `git commit` + `git tag v<X.Y.Z>` + `git push origin main v<X.Y.Z>`.
 4. GitHub Actions `release.yml` publishes to npm (OIDC provenance) and
    creates the GitHub Release from the matching CHANGELOG section.
-5. Conductor refreshes the local plugin cache automatically
-   (`claude plugin marketplace update hummer98-nanobanana-adc` +
-   `claude plugin update nanobanana-adc@hummer98-nanobanana-adc`). Newly
+5. Refresh the local plugin cache — `claude plugin marketplace update hummer98-nanobanana-adc`
+   + `claude plugin update nanobanana-adc@hummer98-nanobanana-adc`. Newly
    opened Claude Code sessions pick up the new version automatically. For
    an already-running session that wants the new `plugin.json` /
    `SessionStart` hooks immediately, run `/reload-plugins` (built-in slash
