@@ -57,8 +57,14 @@ jobs:
           PKG=$(node -p "require('./package.json').version")
           PLUGIN=$(node -p "require('./.claude-plugin/plugin.json').version")
           MARKET=$(node -p "require('./.claude-plugin/marketplace.json').plugins.find(p => p.name === 'nanobanana-adc').version")
-          CLI=$(grep -oE "\.version\('([^']+)'\)" src/cli.ts | sed -E "s/.*'([^']+)'.*/\1/")
+          # src/cli.ts declares `const CLI_VERSION = '<x.y.z>'` and passes it to
+          # commander's .version(). Match the constant, not the .version() call.
+          CLI=$(sed -nE "s/^const CLI_VERSION = '([^']+)';$/\1/p" src/cli.ts)
           echo "package.json=$PKG plugin.json=$PLUGIN marketplace.json=$MARKET src/cli.ts=$CLI"
+          if [ -z "$CLI" ]; then
+            echo "::error::could not read CLI_VERSION from src/cli.ts; the version check is broken, not the versions." >&2
+            exit 1
+          fi
           if [ "$PKG" != "$PLUGIN" ] || [ "$PKG" != "$MARKET" ] || [ "$PKG" != "$CLI" ]; then
             echo "::error::plugin / CLI version out of sync with package.json. Update plugin.json, marketplace.json, and src/cli.ts to match." >&2
             exit 1

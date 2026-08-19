@@ -3,6 +3,17 @@
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+- CI: the `validate-plugin` job's version-consistency check read the CLI
+  version with a `.version('<x.y.z>')` grep, but `src/cli.ts` has passed a
+  `CLI_VERSION` constant to commander since v0.7.0. The grep matched nothing,
+  so `$CLI` was empty and the job failed on every push since then (builds were
+  always green). It now reads the `CLI_VERSION` declaration, and fails with an
+  explicit "the version check is broken, not the versions" message if that
+  ever stops matching.
+
 ## [0.8.0] - 2026-08-19
 
 ### Added
