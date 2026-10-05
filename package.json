@@ -49,7 +49,7 @@
   "dependencies": {
     "@google/generative-ai": "0.24.1",
     "commander": "14.0.3",
-    "google-auth-library": "10.7.0"
+    "google-auth-library": "11.1.0"
   },
   "devDependencies": {
     "@types/node": "25.9.0",
