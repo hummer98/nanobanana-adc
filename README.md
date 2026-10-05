@@ -44,6 +44,10 @@ Most existing Claude Code skills for Gemini image generation (cc-nano-banana, cc
 - AIview / Automatic1111 compatible `tEXt parameters` embedded in generated
   PNGs (opt out with `--no-embed-metadata`). Google's C2PA / SynthID
   provenance chunks are preserved.
+- Local history log: every `generate` call (prompt, settings, output path,
+  token usage) is appended to `~/.local/state/nanobanana-adc/history.jsonl`
+  (opt out with `--no-history` or `NANOBANANA_ADC_NO_HISTORY=1`). See
+  [History](#history).
 - Ships as both an npm binary and a Claude Code plugin from the same repo.
 - TypeScript, strict mode, Node.js ≥ 18.
 
@@ -123,6 +127,7 @@ nanobanana-adc -p "the two of them in the same room, wide shot" \
 | `--reference` | `-r` | — | Reference image path for character-consistent generation. Repeatable, up to 14 images (PNG / JPEG / WebP). |
 | `--person-generation` | — | — | Control person generation. One of `ALLOW_ALL`, `ALLOW_ADULT`, `ALLOW_NONE` (case-insensitive). Omit to use the model default. **Currently Vertex AI (ADC) only** — under API-key auth the flag is ignored with a warning. |
 | `--no-embed-metadata` | — | embed | Disable embedding of the AIview-compatible `tEXt parameters` chunk in PNG output. JPEG output is unaffected (metadata is never embedded into JPEG in this release). |
+| `--no-history` | — | append | Do not append this call (including its prompt) to the [history file](#history). |
 
 ### Reference images (`--reference`)
 
@@ -203,6 +208,57 @@ Note: AI Studio (`--api-key` / `GEMINI_API_KEY`) returns `image/jpeg`. In
 that case the output extension is auto-corrected to `.jpg` and metadata
 embedding is skipped (JPEG APP1/APP13 support is out of scope for v0.3.0).
 
+## History
+
+**Every `generate` call appends one JSON line — including the full prompt
+text — to a local history file. This is on by default.** It exists so that
+"which prompt produced which image" can be answered after a batch, on both
+auth paths and for JPEG output too (where no metadata is embedded). The file
+never leaves your machine, and the API key / access token are never written
+to it.
+
+Location, first match wins:
+
+1. `$NANOBANANA_ADC_HISTORY` (a file path)
+2. `$XDG_STATE_HOME/nanobanana-adc/history.jsonl`
+3. `~/.local/state/nanobanana-adc/history.jsonl`
+
+The directory is created on first write (mode `0700`, file `0600`).
+
+Each line records the values as resolved, not as typed:
+
+| Field | Content |
+|-------|---------|
+| `timestamp` | Start of the call, ISO 8601 with UTC offset. |
+| `status`, `error` | `"ok"` or `"error"`; failed calls are logged too, with the error message. |
+| `prompt` | Full prompt text. |
+| `model`, `aspect`, `size`, `personGeneration` | Generation settings (`personGeneration` is `null` when not set, or when it was ignored under API-key auth). |
+| `references` | Absolute paths of the `--reference` images. |
+| `output` | Absolute path actually written, after any `.png` → `.jpg` correction (`null` on failure). |
+| `mime` | MIME type returned by the API. |
+| `authRoute` | `api-key-flag`, `api-key-env` or `adc`. |
+| `project`, `location` | ADC path only. |
+| `cwd`, `elapsedMs`, `version` | Working directory, wall time, CLI version. |
+| `usage` | The response's `usageMetadata` (token counts), for reconciling with billing. |
+
+```bash
+# Last five prompts and where they went:
+tail -n 5 ~/.local/state/nanobanana-adc/history.jsonl | jq -r '[.timestamp, .output, .prompt] | @tsv'
+```
+
+To opt out:
+
+```bash
+nanobanana-adc -p "private prompt" --no-history -o out.png   # this call only
+export NANOBANANA_ADC_NO_HISTORY=1                            # every call
+```
+
+If the history file cannot be written, the CLI prints a single
+`[history] warning: ...` line; the generation itself and the exit code are
+unaffected. `nanobanana-adc doctor` shows the resolved path and whether it is
+writable. Calls that stop before `generate` starts (invalid arguments, or no
+usable credentials at all) are not recorded.
+
 ## Diagnostics (doctor)
 
 Run `nanobanana-adc doctor` to confirm which auth route will fire, whether the
@@ -260,6 +316,11 @@ ADC source
 Model
   default:                          gemini-3-pro-image
   note:                             requires GOOGLE_CLOUD_LOCATION=global on the ADC path
+
+History
+  path:                             /Users/me/.local/state/nanobanana-adc/history.jsonl   (default)
+  enabled:                          yes
+  writable:                         yes
 
 Warnings (0)
   (none)
@@ -326,6 +387,9 @@ nanobanana-adc doctor --json | jq .adcSource
 
 # Inspect the gcloud config directory (resolved path, source, presence):
 nanobanana-adc doctor --json | jq .gcloudConfigDir
+
+# Where the generate history log goes, and whether it is writable:
+nanobanana-adc doctor --json | jq .history
 
 # Gate a script on no-fatal-state:
 nanobanana-adc doctor --json | jq -e '.fatal | not' >/dev/null && echo "ready"
@@ -445,6 +509,9 @@ Credentials are resolved in this order; the first match wins:
 | `GOOGLE_GENAI_USE_VERTEXAI` | ADC mode | Set to `true` to make the Vertex AI mode explicit. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Optional | Path to a service-account JSON key. Falls back to gcloud user credentials if unset. |
 | `GEMINI_API_KEY` | Fallback | Used when ADC environment is not configured. |
+| `NANOBANANA_ADC_HISTORY` | Optional | Path of the [history file](#history). Overrides the `$XDG_STATE_HOME` / `~/.local/state` default. |
+| `NANOBANANA_ADC_NO_HISTORY` | Optional | Set to `1` to disable the history log (any value other than empty / `0` / `false` disables it). |
+| `XDG_STATE_HOME` | Optional | Base directory for the default history location (`$XDG_STATE_HOME/nanobanana-adc/history.jsonl`). |
 
 ## Development
 

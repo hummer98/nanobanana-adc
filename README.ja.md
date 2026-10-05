@@ -42,6 +42,10 @@ Gemini 画像生成向けの既存 Claude Code skill（cc-nano-banana、ccskill-
 - AIview / Automatic1111 互換の `tEXt parameters` を生成 PNG に埋め込み
   （`--no-embed-metadata` で無効化）。Google の C2PA / SynthID provenance
   チャンクは保持されます。
+- ローカル履歴ログ: `generate` の呼び出しごとに、プロンプト・設定・出力
+  パス・トークン使用量を `~/.local/state/nanobanana-adc/history.jsonl` に
+  追記（`--no-history` または `NANOBANANA_ADC_NO_HISTORY=1` で無効化）。
+  [履歴（history）](#履歴history) を参照。
 - 同一リポジトリから npm バイナリと Claude Code plugin の両方を配布。
 - TypeScript、strict モード、Node.js ≥ 18。
 
@@ -121,6 +125,7 @@ nanobanana-adc -p "同じ部屋にいる二人。引きの構図" \
 | `--reference` | `-r` | — | キャラクター一貫性のための参照画像パス。複数回指定可能、最大 14 枚（PNG / JPEG / WebP）。 |
 | `--person-generation` | — | — | 人物生成の制御。`ALLOW_ALL` / `ALLOW_ADULT` / `ALLOW_NONE` のいずれか（大文字小文字を問わず受け付け）。未指定時はモデル既定。**現状は Vertex AI (ADC) 経路専用** — API キー認証では警告を出して無視されます。 |
 | `--no-embed-metadata` | — | 埋め込む | PNG への AIview 互換 `tEXt parameters` チャンクの埋め込みを無効化。JPEG 出力では元々埋め込みません（本リリースでは JPEG への埋め込みは対象外）。 |
+| `--no-history` | — | 追記する | この呼び出し（プロンプトを含む）を[履歴ファイル](#履歴history)に追記しない。 |
 
 ### 参照画像（`--reference`）
 
@@ -202,6 +207,58 @@ nanobanana-adc -p "private prompt" --no-embed-metadata -o out.png
 埋め込みはスキップされます（JPEG の APP1/APP13 対応は v0.3.0 では
 スコープ外）。
 
+## 履歴（history）
+
+**`generate` を呼ぶたびに、プロンプト全文を含む 1 行の JSON がローカルの
+履歴ファイルに追記されます。これは既定で有効です。** バッチ生成のあとで
+「どのプロンプトがどの画像になったか」を、どちらの認証経路でも、メタデータ
+を埋め込めない JPEG 出力でも追えるようにするための機能です。ファイルは
+手元のマシンから外には出ません。API キーとアクセストークンは書き込まれ
+ません。
+
+保存先（先に該当したものを使用）:
+
+1. `$NANOBANANA_ADC_HISTORY`（ファイルパス）
+2. `$XDG_STATE_HOME/nanobanana-adc/history.jsonl`
+3. `~/.local/state/nanobanana-adc/history.jsonl`
+
+ディレクトリは初回書き込み時に作成されます（ディレクトリ `0700`、
+ファイル `0600`）。
+
+各行には、入力されたままではなく解決後の値が記録されます:
+
+| フィールド | 内容 |
+|------------|------|
+| `timestamp` | 呼び出し開始時刻。UTC オフセット付き ISO 8601。 |
+| `status`, `error` | `"ok"` または `"error"`。失敗した呼び出しもエラーメッセージ付きで記録されます。 |
+| `prompt` | プロンプト全文。 |
+| `model`, `aspect`, `size`, `personGeneration` | 生成設定（`personGeneration` は未指定、または API キー認証で無視された場合は `null`）。 |
+| `references` | `--reference` 画像の絶対パス。 |
+| `output` | 実際に書き込んだ絶対パス（`.png` → `.jpg` 補正後。失敗時は `null`）。 |
+| `mime` | API が返した MIME タイプ。 |
+| `authRoute` | `api-key-flag` / `api-key-env` / `adc`。 |
+| `project`, `location` | ADC 経路のみ。 |
+| `cwd`, `elapsedMs`, `version` | 作業ディレクトリ、所要時間、CLI バージョン。 |
+| `usage` | レスポンスの `usageMetadata`（トークン数）。課金データとの突き合わせ用。 |
+
+```bash
+# 直近 5 件のプロンプトと出力先:
+tail -n 5 ~/.local/state/nanobanana-adc/history.jsonl | jq -r '[.timestamp, .output, .prompt] | @tsv'
+```
+
+無効化するには:
+
+```bash
+nanobanana-adc -p "private prompt" --no-history -o out.png   # この呼び出しだけ
+export NANOBANANA_ADC_NO_HISTORY=1                            # すべての呼び出し
+```
+
+履歴ファイルに書き込めない場合は `[history] warning: ...` を 1 行出力する
+だけで、画像生成そのものと終了コードには影響しません。解決された保存先と
+書き込み可否は `nanobanana-adc doctor` で確認できます。`generate` が始まる
+前に止まる呼び出し（引数エラー、利用できる認証情報がまったく無い場合）は
+記録されません。
+
 ## 診断（doctor）
 
 `nanobanana-adc doctor` で、どの認証経路が選ばれるか・GCP 環境変数が揃って
@@ -260,6 +317,11 @@ Model
   default:                          gemini-3-pro-image
   note:                             requires GOOGLE_CLOUD_LOCATION=global on the ADC path
 
+History
+  path:                             /Users/me/.local/state/nanobanana-adc/history.jsonl   (default)
+  enabled:                          yes
+  writable:                         yes
+
 Warnings (0)
   (none)
 ```
@@ -305,6 +367,9 @@ nanobanana-adc doctor --json | jq .adcSource
 
 # 新規: gcloud 設定 dir の解決先と presence を覗く:
 nanobanana-adc doctor --json | jq .gcloudConfigDir
+
+# generate 履歴ログの保存先と書き込み可否:
+nanobanana-adc doctor --json | jq .history
 
 # fatal でないことを gate にする:
 nanobanana-adc doctor --json | jq -e '.fatal | not' >/dev/null && echo "ready"
@@ -455,6 +520,9 @@ nanobanana-adc --prompt "a cat in space" --api-key "$GEMINI_API_KEY"
 | `GOOGLE_GENAI_USE_VERTEXAI` | ADC モード | `true` に設定して Vertex AI モードを明示。 |
 | `GOOGLE_APPLICATION_CREDENTIALS` | 任意 | サービスアカウント JSON キーのパス。未設定時は gcloud ユーザー認証情報にフォールバック。 |
 | `GEMINI_API_KEY` | フォールバック | ADC 環境が未設定のときに使用。 |
+| `NANOBANANA_ADC_HISTORY` | 任意 | [履歴ファイル](#履歴history)のパス。`$XDG_STATE_HOME` / `~/.local/state` の既定値より優先。 |
+| `NANOBANANA_ADC_NO_HISTORY` | 任意 | `1` を設定すると履歴ログを無効化（空 / `0` / `false` 以外の値で無効）。 |
+| `XDG_STATE_HOME` | 任意 | 既定の履歴保存先のベースディレクトリ（`$XDG_STATE_HOME/nanobanana-adc/history.jsonl`）。 |
 
 ## 開発
 

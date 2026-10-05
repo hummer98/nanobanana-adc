@@ -8,6 +8,13 @@ import {
   loadReferenceImages,
   type ReferenceImage,
 } from './reference.js';
+import {
+  appendHistory,
+  buildHistoryRecord,
+  isHistoryEnabled,
+  resolveHistoryPath,
+  type HistoryEnv,
+} from './history.js';
 
 type AdcAuth = Extract<AuthResult, { mode: 'adc' }>;
 type ApiKeyAuth = Extract<AuthResult, { mode: 'api-key' }>;
@@ -41,6 +48,18 @@ export interface GenerateOptions {
   embedMetadata: boolean;
   /** Reference image paths for character-consistent generation (max 14). */
   references?: string[];
+  /** Append a line to the history file. Default on; `--no-history` sets false. */
+  history?: boolean;
+  /** CLI version stamped into the history record. */
+  cliVersion?: string;
+}
+
+/** Injection points for tests; production callers pass nothing. */
+export interface GenerateDeps {
+  resolveAuth?: (apiKey?: string) => Promise<AuthResult>;
+  /** Env consulted for the history location / opt-out. Default: process.env. */
+  historyEnv?: HistoryEnv;
+  cwd?: string;
 }
 
 export const ASPECT_MAP: Record<GenerateAspect, string> = {
@@ -235,6 +254,16 @@ export async function writeImage(
 interface GeneratedImage {
   base64: string;
   mimeType: string | undefined;
+  /** `usageMetadata` from the response, passed through for the history log. */
+  usage: unknown;
+}
+
+/** What the history record needs from a run, filled in as the run progresses. */
+interface GenerateTrace {
+  auth?: AuthResult;
+  mimeType?: string;
+  outputPath?: string;
+  usage?: unknown;
 }
 
 async function generateViaVertexFetch(
@@ -293,13 +322,18 @@ async function generateViaVertexFetch(
         parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }>;
       };
     }>;
+    usageMetadata?: unknown;
   };
 
   const parts = json.candidates?.[0]?.content?.parts ?? [];
   for (const p of parts) {
     const data = p.inlineData?.data;
     if (typeof data === 'string' && data.length > 0) {
-      return { base64: data, mimeType: p.inlineData?.mimeType };
+      return {
+        base64: data,
+        mimeType: p.inlineData?.mimeType,
+        usage: json.usageMetadata,
+      };
     }
   }
   throw new Error('[generate] response contained no image data');
@@ -335,18 +369,85 @@ async function generateViaSdk(
   const parts = result.response.candidates?.[0]?.content?.parts ?? [];
   for (const p of parts) {
     if ('inlineData' in p && p.inlineData?.data) {
-      return { base64: p.inlineData.data, mimeType: p.inlineData.mimeType };
+      return {
+        base64: p.inlineData.data,
+        mimeType: p.inlineData.mimeType,
+        usage: result.response.usageMetadata,
+      };
     }
   }
   throw new Error('[generate] response contained no image data');
 }
 
-export async function generate(options: GenerateOptions): Promise<void> {
+export async function generate(
+  options: GenerateOptions,
+  deps: GenerateDeps = {},
+): Promise<void> {
   const startedAt = Date.now();
+  const trace: GenerateTrace = {};
+  let failure: unknown;
+  let failed = false;
+  try {
+    await runGenerate(options, deps, trace, startedAt);
+  } catch (err) {
+    failed = true;
+    failure = err;
+  }
 
+  const historyEnv = deps.historyEnv ?? (process.env as HistoryEnv);
+  if (isHistoryEnabled(options.history, historyEnv)) {
+    const auth = trace.auth;
+    const record = buildHistoryRecord({
+      startedAt: new Date(startedAt),
+      elapsedMs: Date.now() - startedAt,
+      cwd: deps.cwd ?? process.cwd(),
+      prompt: options.prompt,
+      model: options.model,
+      aspect: options.aspect,
+      size: options.size,
+      // As resolved: under API-key auth the value is never sent (#13).
+      personGeneration: auth
+        ? resolvePersonGeneration(auth.mode, options.personGeneration)
+            .personGeneration
+        : options.personGeneration,
+      references: options.references,
+      output: trace.outputPath ?? null,
+      mime: trace.mimeType ?? null,
+      authRoute: auth?.route ?? null,
+      ...(auth?.mode === 'adc'
+        ? { project: auth.project, location: auth.location }
+        : {}),
+      usage: trace.usage,
+      ...(failed
+        ? {
+            error:
+              failure instanceof Error ? failure.message : String(failure),
+          }
+        : {}),
+      version: options.cliVersion,
+      secrets: [
+        options.apiKey,
+        process.env.GEMINI_API_KEY,
+        auth?.mode === 'api-key' ? auth.apiKey : auth?.accessToken,
+      ],
+    });
+    // appendHistory never throws; a failed write only prints a warning.
+    await appendHistory(resolveHistoryPath(historyEnv).path, record);
+  }
+
+  if (failed) throw failure;
+}
+
+async function runGenerate(
+  options: GenerateOptions,
+  deps: GenerateDeps,
+  trace: GenerateTrace,
+  startedAt: number,
+): Promise<void> {
   const references = await loadReferenceImages(options.references ?? []);
 
-  const auth = await resolveAuth(options.apiKey);
+  const auth = await (deps.resolveAuth ?? resolveAuth)(options.apiKey);
+  trace.auth = auth;
 
   const { personGeneration, warning: personGenerationWarning } =
     resolvePersonGeneration(auth.mode, options.personGeneration);
@@ -361,13 +462,15 @@ export async function generate(options: GenerateOptions): Promise<void> {
     ...(personGeneration ? { personGeneration } : {}),
   };
 
-  const { base64, mimeType: declaredMime } =
+  const { base64, mimeType: declaredMime, usage } =
     auth.mode === 'adc'
       ? await generateViaVertexFetch(auth, effective, references)
       : await generateViaSdk(auth, effective, references);
+  trace.usage = usage;
 
   const imageBytes = Buffer.from(base64, 'base64');
   const mimeType = resolveMimeType(declaredMime, imageBytes);
+  trace.mimeType = mimeType;
 
   const { path: actualOutputPath, warning: pathWarning } = resolveOutputPath(
     options.output,
@@ -405,6 +508,7 @@ export async function generate(options: GenerateOptions): Promise<void> {
     mimeType,
     payloadForWrite,
   );
+  trace.outputPath = actualPath;
 
   const elapsed = Date.now() - startedAt;
   const referenceField =

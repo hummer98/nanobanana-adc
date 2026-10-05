@@ -1,19 +1,32 @@
 import { GoogleAuth } from 'google-auth-library';
 
 export type AuthResult =
-  | { mode: 'api-key'; apiKey: string }
-  | { mode: 'adc'; accessToken: string; project: string; location: string };
+  | {
+      mode: 'api-key';
+      /** Which of the two API-key sources won (flag beats env). */
+      route: 'api-key-flag' | 'api-key-env';
+      apiKey: string;
+    }
+  | {
+      mode: 'adc';
+      route: 'adc';
+      accessToken: string;
+      project: string;
+      location: string;
+    };
+
+export type AuthRoute = AuthResult['route'];
 
 export async function resolveAuth(apiKey?: string): Promise<AuthResult> {
   if (apiKey && apiKey.length > 0) {
     console.log('[auth] using: api-key');
-    return { mode: 'api-key', apiKey };
+    return { mode: 'api-key', route: 'api-key-flag', apiKey };
   }
 
   const envApiKey = process.env.GEMINI_API_KEY;
   if (envApiKey && envApiKey.length > 0) {
     console.log('[auth] using: api-key');
-    return { mode: 'api-key', apiKey: envApiKey };
+    return { mode: 'api-key', route: 'api-key-env', apiKey: envApiKey };
   }
 
   const project = process.env.GOOGLE_CLOUD_PROJECT;
@@ -48,7 +61,7 @@ export async function resolveAuth(apiKey?: string): Promise<AuthResult> {
   }
 
   console.log('[auth] using: adc');
-  return { mode: 'adc', accessToken, project, location };
+  return { mode: 'adc', route: 'adc', accessToken, project, location };
 }
 
 function failWith(msg: string): never {
