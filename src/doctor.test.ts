@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   buildDoctorReport,
@@ -18,6 +21,7 @@ import {
   type AdcSourceReport,
   type GcloudConfigDirReport,
 } from './doctor.js';
+import type { HistoryStatus } from './history.js';
 
 const NOW_MS = () => 0;
 const FAKE_ARGV1 = '/Users/test/git/nanobanana-adc/dist/cli.js';
@@ -49,6 +53,15 @@ const MINIMAL_GCLOUD_CONFIG_DIR_STUB: GcloudConfigDirReport = {
   },
 };
 
+// Keeps buildDoctorReport from stat()-ing the real ~/.local/state in tests.
+const MINIMAL_HISTORY_STUB: HistoryStatus = {
+  path: '/fake/state/nanobanana-adc/history.jsonl',
+  source: 'default',
+  enabled: true,
+  exists: false,
+  writable: true,
+};
+
 function baseOpts(overrides: Partial<Parameters<typeof buildDoctorReport>[1]> = {}) {
   return {
     verbose: false,
@@ -63,6 +76,7 @@ function baseOpts(overrides: Partial<Parameters<typeof buildDoctorReport>[1]> = 
     adcSourceResolver: async (): Promise<AdcSourceReport> => MINIMAL_ADC_SOURCE_STUB,
     gcloudConfigDirResolver: async (): Promise<GcloudConfigDirReport> =>
       MINIMAL_GCLOUD_CONFIG_DIR_STUB,
+    historyInspector: async (): Promise<HistoryStatus> => MINIMAL_HISTORY_STUB,
     ...overrides,
   };
 }
@@ -1527,4 +1541,66 @@ test('84. LEAK_CANARY: secrets never appear when CLOUDSDK_CONFIG is set + servic
   // positive: client_email IS surfaced; CLOUDSDK_CONFIG path is informational and ok to show
   assert.match(json, /sa@x\.iam\.gserviceaccount\.com/);
   assert.match(json, /\/cs/);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// History log (issue #17)
+// ───────────────────────────────────────────────────────────────────────────
+
+test('history: report carries the resolved path + writability, schema id unchanged', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'doctor-history-'));
+  const historyPath = join(tmp, 'nested', 'history.jsonl');
+  const env: DoctorEnv = {
+    GEMINI_API_KEY: GOOD_KEY,
+    NANOBANANA_ADC_HISTORY: historyPath,
+  };
+  // No historyInspector override → exercises the real (read-only) inspector.
+  const r = await buildDoctorReport(env, baseOpts({ historyInspector: undefined }));
+  assert.equal(r.schema, 'nanobanana-adc-doctor/v1');
+  assert.deepEqual(r.history, {
+    path: historyPath,
+    source: 'env-override',
+    enabled: true,
+    exists: false,
+    writable: true,
+  });
+  // doctor only inspects: nothing may be created.
+  assert.equal(existsSync(join(tmp, 'nested')), false);
+
+  const parsed = JSON.parse(renderDoctorJSON(r));
+  assert.equal(parsed.history.path, historyPath);
+  assert.equal(parsed.history.writable, true);
+  // additive only: every pre-existing top-level key is still there
+  for (const key of [
+    'schema', 'generatedAt', 'cli', 'authRoute', 'apiKey', 'adc', 'gcpEnv',
+    'model', 'adcSource', 'gcloudConfigDir', 'warnings', 'fatal',
+  ]) {
+    assert.ok(key in parsed, `missing top-level key ${key}`);
+  }
+});
+
+test('history: opt-out env and unwritable location are reported', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'doctor-history-'));
+  const blocker = join(tmp, 'not-a-dir');
+  writeFileSync(blocker, 'x');
+  const env: DoctorEnv = {
+    NANOBANANA_ADC_HISTORY: join(blocker, 'history.jsonl'),
+    NANOBANANA_ADC_NO_HISTORY: '1',
+  };
+  const r = await buildDoctorReport(env, baseOpts({ historyInspector: undefined }));
+  assert.equal(r.history.enabled, false);
+  assert.equal(r.history.writable, false);
+
+  const text = renderDoctorText(r);
+  assert.match(text, /\nHistory\n/);
+  assert.match(text, /enabled:\s+no/);
+  assert.match(text, /writable:\s+no/);
+});
+
+test('history: text renderer shows the path and writable state', async () => {
+  const r = await buildDoctorReport({ GEMINI_API_KEY: GOOD_KEY }, baseOpts());
+  const text = renderDoctorText(r);
+  assert.match(text, /\nHistory\n/);
+  assert.ok(text.includes(MINIMAL_HISTORY_STUB.path));
+  assert.match(text, /writable:\s+yes/);
 });

@@ -6,6 +6,7 @@ import { sep } from 'node:path';
 import { execFile } from 'node:child_process';
 import { GoogleAuth } from 'google-auth-library';
 import { DEFAULT_MODEL } from './models.js';
+import { inspectHistory, type HistoryStatus } from './history.js';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types
@@ -23,6 +24,10 @@ export interface DoctorEnv {
   KUBERNETES_SERVICE_HOST?: string;
   CLOUD_BUILD_BUILDID?: string;
   CLOUDSDK_CONFIG?: string;
+  // generate history log (issue #17)
+  XDG_STATE_HOME?: string;
+  NANOBANANA_ADC_HISTORY?: string;
+  NANOBANANA_ADC_NO_HISTORY?: string;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -189,6 +194,7 @@ export interface DoctorOptions {
     opts: ResolveAdcSourceOptions,
   ) => Promise<AdcSourceReport>;
   gcloudConfigDirResolver?: (env: DoctorEnv) => Promise<GcloudConfigDirReport>;
+  historyInspector?: (env: DoctorEnv) => Promise<HistoryStatus>;
 }
 
 export type InstallMethod = 'claude-plugin' | 'npm-global' | 'source' | 'unknown';
@@ -257,6 +263,8 @@ export interface DoctorReport {
   };
   adcSource: AdcSourceReport;
   gcloudConfigDir: GcloudConfigDirReport;
+  /** generate history log: resolved path + whether a write would succeed (additive in v1). */
+  history: HistoryStatus;
   warnings: DoctorWarning[];
   fatal: boolean;
   verbose?: {
@@ -988,6 +996,8 @@ export async function buildDoctorReport(
   const gcloudConfigDirFn = opts.gcloudConfigDirResolver ?? resolveGcloudConfigDir;
   const gcloudConfigDir = await gcloudConfigDirFn(env);
 
+  const history = await (opts.historyInspector ?? inspectHistory)(env);
+
   const warnings = computeWarnings({
     env,
     apiKey,
@@ -1023,6 +1033,7 @@ export async function buildDoctorReport(
     },
     adcSource,
     gcloudConfigDir,
+    history,
     warnings,
     fatal,
   };
@@ -1098,6 +1109,12 @@ function renderResolvedKind(kind: AdcSourceKind): string {
 
 function renderGcloudConfigDirSourceLabel(source: GcloudConfigDirSource): string {
   return source === 'env-cloudsdk-config' ? 'env CLOUDSDK_CONFIG' : 'default ($HOME/.config/gcloud)';
+}
+
+function renderHistorySourceLabel(source: HistoryStatus['source']): string {
+  if (source === 'env-override') return 'from $NANOBANANA_ADC_HISTORY';
+  if (source === 'xdg-state-home') return 'from $XDG_STATE_HOME';
+  return 'default';
 }
 
 function renderPresenceState(e: GcloudConfigDirEntry): string {
@@ -1236,6 +1253,21 @@ export function renderDoctorText(report: DoctorReport): string {
   lines.push('Model');
   lines.push(kv('default', report.model.default));
   lines.push(kv('note', report.model.note));
+  lines.push('');
+
+  const h = report.history;
+  lines.push('History');
+  lines.push(kv('path', h.path, `(${renderHistorySourceLabel(h.source)})`));
+  lines.push(
+    kv('enabled', h.enabled ? 'yes' : 'no', h.enabled ? '' : '(NANOBANANA_ADC_NO_HISTORY set)'),
+  );
+  lines.push(
+    kv(
+      'writable',
+      h.writable ? 'yes' : 'no',
+      h.writable ? (h.exists ? '' : '(not created yet)') : '⚠ history will not be recorded',
+    ),
+  );
   lines.push('');
 
   lines.push(`Warnings (${report.warnings.length})`);

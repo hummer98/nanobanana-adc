@@ -5,6 +5,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `generate`: history log (issue #17). **Every `generate` call now appends
+  one JSON line, including the full prompt text, to a file on disk — on by
+  default.** Location: `$XDG_STATE_HOME/nanobanana-adc/history.jsonl`, falling
+  back to `~/.local/state/nanobanana-adc/history.jsonl`; override with
+  `NANOBANANA_ADC_HISTORY=<path>`. Opt out per call with `--no-history` or
+  globally with `NANOBANANA_ADC_NO_HISTORY=1`. Each line records the values
+  as resolved: `timestamp`, `status` / `error`, `prompt`, `model`, `aspect`,
+  `size`, `personGeneration`, `references` (absolute paths), `output` (the
+  path actually written, after the `.png` → `.jpg` correction), `mime`,
+  `authRoute` (`api-key-flag` / `api-key-env` / `adc`), `project` /
+  `location` (ADC only), `cwd`, `elapsedMs`, `usage` (the response's
+  `usageMetadata`) and `version`. Failed calls are logged with
+  `status: "error"`; JPEG output and both auth paths are logged the same way.
+  The API key and access token are never written, and are scrubbed from
+  error text. The file is created with mode `0600` (directory `0700`), each
+  entry is a single `appendFile`, and a write failure only prints a
+  `[history] warning: ...` line — it never fails the generation or changes
+  the exit code. Calls that exit before `generate` runs (argument validation,
+  no usable credentials) are not recorded.
+- `doctor`: new `History` section / `history` JSON field (`path`, `source`,
+  `enabled`, `exists`, `writable`) reporting the resolved history path and
+  whether it is writable. Additive only — the `nanobanana-adc-doctor/v1`
+  schema id and all existing fields are unchanged.
+
 ### Changed
 - Dependencies: `google-auth-library` 10.6.2 → 10.7.0. Dev dependencies:
   `typescript` 5.9.3 → 6.0.3, `@types/node` 20.19.39 → 25.9.0, `tsx` 4.21.0 →

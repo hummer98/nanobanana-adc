@@ -145,6 +145,10 @@ program
     '--no-embed-metadata',
     'do not embed AIview-compatible parameters metadata (PNG only; default: embed)',
   )
+  .option(
+    '--no-history',
+    'do not append this call (including the prompt) to the history file (default: append; see NANOBANANA_ADC_HISTORY / NANOBANANA_ADC_NO_HISTORY)',
+  )
   .action(async (opts: {
     prompt: string;
     output: string;
@@ -154,6 +158,7 @@ program
     apiKey?: string;
     personGeneration?: string;
     embedMetadata: boolean;
+    history: boolean;
     reference: string[];
   }) => {
     assertAspect(opts.aspect);
@@ -167,6 +172,8 @@ program
       apiKey: opts.apiKey,
       embedMetadata: opts.embedMetadata,
       references: opts.reference,
+      history: opts.history,
+      cliVersion: CLI_VERSION,
     };
 
     if (opts.personGeneration) {
@@ -202,6 +209,9 @@ program
         KUBERNETES_SERVICE_HOST: process.env.KUBERNETES_SERVICE_HOST,
         CLOUD_BUILD_BUILDID: process.env.CLOUD_BUILD_BUILDID,
         CLOUDSDK_CONFIG: process.env.CLOUDSDK_CONFIG,
+        XDG_STATE_HOME: process.env.XDG_STATE_HOME,
+        NANOBANANA_ADC_HISTORY: process.env.NANOBANANA_ADC_HISTORY,
+        NANOBANANA_ADC_NO_HISTORY: process.env.NANOBANANA_ADC_NO_HISTORY,
       };
       const report = await buildDoctorReport(env, {
         verbose: !!opts.verbose,
