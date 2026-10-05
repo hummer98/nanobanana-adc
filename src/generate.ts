@@ -106,6 +106,40 @@ export function buildParametersString(opts: ParametersStringOptions): string {
   return `${opts.prompt}\n${parts.join(', ')}`;
 }
 
+// The AI Studio v1beta endpoint (api-key path) rejects
+// `imageConfig.personGeneration` with `400 Unknown name "personGeneration"`,
+// so the value is only applied on the Vertex AI (ADC) path.
+export function resolvePersonGeneration(
+  mode: AuthResult['mode'],
+  requested: PersonGeneration | undefined,
+): { personGeneration: PersonGeneration | undefined; warning: string | null } {
+  if (!requested || mode === 'adc') {
+    return { personGeneration: requested, warning: null };
+  }
+  const warning =
+    `[generate] warning: --person-generation ${requested} is ignored under ` +
+    'API-key auth; ADC (Vertex AI) is required for this flag';
+  return { personGeneration: undefined, warning };
+}
+
+export interface ImageConfig {
+  aspectRatio: string;
+  imageSize: GenerateSize;
+  personGeneration?: PersonGeneration;
+}
+
+export function buildImageConfig(
+  options: Pick<GenerateOptions, 'aspect' | 'size' | 'personGeneration'>,
+): ImageConfig {
+  return {
+    aspectRatio: ASPECT_MAP[options.aspect],
+    imageSize: options.size,
+    ...(options.personGeneration
+      ? { personGeneration: options.personGeneration }
+      : {}),
+  };
+}
+
 const EXT_FOR_MIME: Record<string, string> = {
   'image/png': '.png',
   'image/jpeg': '.jpg',
@@ -225,13 +259,7 @@ async function generateViaVertexFetch(
     ],
     generationConfig: {
       responseModalities: ['IMAGE'],
-      imageConfig: {
-        aspectRatio: ASPECT_MAP[options.aspect],
-        imageSize: options.size,
-        ...(options.personGeneration
-          ? { personGeneration: options.personGeneration }
-          : {}),
-      },
+      imageConfig: buildImageConfig(options),
     },
   };
 
@@ -288,13 +316,7 @@ async function generateViaSdk(
     model: options.model,
     generationConfig: {
       responseModalities: ['IMAGE'],
-      imageConfig: {
-        aspectRatio: ASPECT_MAP[options.aspect],
-        imageSize: options.size,
-        ...(options.personGeneration
-          ? { personGeneration: options.personGeneration }
-          : {}),
-      },
+      imageConfig: buildImageConfig(options),
     } as any,
   });
 
@@ -326,10 +348,23 @@ export async function generate(options: GenerateOptions): Promise<void> {
 
   const auth = await resolveAuth(options.apiKey);
 
+  const { personGeneration, warning: personGenerationWarning } =
+    resolvePersonGeneration(auth.mode, options.personGeneration);
+  if (personGenerationWarning) {
+    process.stderr.write(`${personGenerationWarning}\n`);
+  }
+  // From here on `personGeneration` is what is actually sent, so the request
+  // body and the embedded metadata cannot disagree.
+  const { personGeneration: _requested, ...rest } = options;
+  const effective: GenerateOptions = {
+    ...rest,
+    ...(personGeneration ? { personGeneration } : {}),
+  };
+
   const { base64, mimeType: declaredMime } =
     auth.mode === 'adc'
-      ? await generateViaVertexFetch(auth, options, references)
-      : await generateViaSdk(auth, options, references);
+      ? await generateViaVertexFetch(auth, effective, references)
+      : await generateViaSdk(auth, effective, references);
 
   const imageBytes = Buffer.from(base64, 'base64');
   const mimeType = resolveMimeType(declaredMime, imageBytes);
@@ -348,9 +383,7 @@ export async function generate(options: GenerateOptions): Promise<void> {
         sizePx: SIZE_PX[options.size],
         model: options.model,
         aspect: options.aspect,
-        ...(options.personGeneration
-          ? { personGeneration: options.personGeneration }
-          : {}),
+        ...(personGeneration ? { personGeneration } : {}),
         ...(references.length > 0
           ? { referenceCount: references.length }
           : {}),
