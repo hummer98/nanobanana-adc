@@ -19,7 +19,7 @@ import {
 import { runAuthLogin, type LoginCliOptions } from './auth-login.js';
 import { DEFAULT_MODEL } from './models.js';
 
-const CLI_VERSION = '0.8.0';
+const CLI_VERSION = '0.9.0';
 
 function collectReference(value: string, previous: string[]): string[] {
   if (value.trim() === '') {
