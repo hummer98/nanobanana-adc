@@ -98,7 +98,7 @@ nanobanana-adc -p "retro poster art" --model gemini-3.1-flash-image
 # 5. API-key fallback
 nanobanana-adc -p "a cat in space" --api-key "$GEMINI_API_KEY"
 
-# 6. Restrict person generation
+# 6. Restrict person generation (Vertex AI / ADC only)
 nanobanana-adc -p "a bustling plaza" --person-generation ALLOW_ADULT
 
 # 7. Reference image — keep the same character across shots
@@ -121,7 +121,7 @@ nanobanana-adc -p "the two of them in the same room, wide shot" \
 | `--model` | `-m` | `gemini-3-pro-image` | Model ID. |
 | `--api-key` | — | — | Explicit Gemini API key (overrides env and ADC). |
 | `--reference` | `-r` | — | Reference image path for character-consistent generation. Repeatable, up to 14 images (PNG / JPEG / WebP). |
-| `--person-generation` | — | — | Control person generation. One of `ALLOW_ALL`, `ALLOW_ADULT`, `ALLOW_NONE` (case-insensitive). Omit to use the model default. |
+| `--person-generation` | — | — | Control person generation. One of `ALLOW_ALL`, `ALLOW_ADULT`, `ALLOW_NONE` (case-insensitive). Omit to use the model default. **Currently Vertex AI (ADC) only** — under API-key auth the flag is ignored with a warning. |
 | `--no-embed-metadata` | — | embed | Disable embedding of the AIview-compatible `tEXt parameters` chunk in PNG output. JPEG output is unaffected (metadata is never embedded into JPEG in this release). |
 
 ### Reference images (`--reference`)
@@ -151,7 +151,7 @@ nanobanana-adc \
 This is reference-conditioned **generation**, not mask-based editing;
 inpainting / outpainting remain out of scope.
 
-> Note on `--person-generation`: currently accepted on the Vertex AI (ADC) path. The AI Studio v1beta endpoint used by the `--api-key` / `GEMINI_API_KEY` path did not recognize this field for Gemini 3 Pro Image as of v0.6.0 and returned `400 Unknown name "personGeneration"`. There are also reports that some AI Studio API-key tiers may reject `ALLOW_ALL` with a 400 error (not yet confirmed for the Gemini API path). If you hit either, fall back to omitting the flag or use the ADC path.
+> Note on `--person-generation`: currently accepted on the Vertex AI (ADC) path. The AI Studio v1beta endpoint used by the `--api-key` / `GEMINI_API_KEY` path did not recognize this field for Gemini 3 Pro Image as of v0.6.0 and returned `400 Unknown name "personGeneration"`. There are also reports that some AI Studio API-key tiers may reject `ALLOW_ALL` with a 400 error (not yet confirmed for the Gemini API path). Under API-key auth the CLI therefore does not send the field: it prints a one-line `[generate] warning: ...` to stderr, ignores the flag, and generates with the model default. Use the ADC path if you need the flag to take effect.
 
 ### Models
 
@@ -184,6 +184,9 @@ list of CLI options:
 <prompt>
 Steps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image, Aspect: 1:1[, Person generation: ALLOW_ADULT]
 ```
+
+`Person generation` is recorded only when the value was actually sent to the
+API, i.e. on the Vertex AI (ADC) path.
 
 `Steps: 1, Sampler: gemini` are placeholder fields required by AIview's
 `parsePrompt` (it splits on `Steps:`). The chunk is inserted immediately

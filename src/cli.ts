@@ -126,7 +126,10 @@ program
     [] as string[],
   )
   .addOption(
-    new Option('--person-generation <mode>', 'control person generation')
+    new Option(
+      '--person-generation <mode>',
+      'control person generation (currently Vertex AI / ADC only; ignored with a warning under API-key auth)',
+    )
       .choices([...PERSON_GENERATION_MODES])
       .argParser((v: string) => {
         const upper = v.toUpperCase();

@@ -119,7 +119,7 @@ nanobanana-adc -p "同じ部屋にいる二人。引きの構図" \
 | `--model` | `-m` | `gemini-3-pro-image` | モデル ID。 |
 | `--api-key` | — | — | 明示的に渡す Gemini API キー（環境変数・ADC より優先）。 |
 | `--reference` | `-r` | — | キャラクター一貫性のための参照画像パス。複数回指定可能、最大 14 枚（PNG / JPEG / WebP）。 |
-| `--person-generation` | — | — | 人物生成の制御。`ALLOW_ALL` / `ALLOW_ADULT` / `ALLOW_NONE` のいずれか（大文字小文字を問わず受け付け）。未指定時はモデル既定。 |
+| `--person-generation` | — | — | 人物生成の制御。`ALLOW_ALL` / `ALLOW_ADULT` / `ALLOW_NONE` のいずれか（大文字小文字を問わず受け付け）。未指定時はモデル既定。**現状は Vertex AI (ADC) 経路専用** — API キー認証では警告を出して無視されます。 |
 | `--no-embed-metadata` | — | 埋め込む | PNG への AIview 互換 `tEXt parameters` チャンクの埋め込みを無効化。JPEG 出力では元々埋め込みません（本リリースでは JPEG への埋め込みは対象外）。 |
 
 ### 参照画像（`--reference`）
@@ -147,7 +147,7 @@ nanobanana-adc \
 これは参照画像を条件にした**新規生成**であり、マスクベースの編集ではありません。
 inpainting / outpainting は引き続きスコープ外です。
 
-> `--person-generation` についての注記: 現状は Vertex AI (ADC) 経路でのみ受理されます。`--api-key` / `GEMINI_API_KEY` 経路で利用される AI Studio v1beta エンドポイントは、v0.6.0 時点の Gemini 3 Pro Image においてこのフィールドを認識せず `400 Unknown name "personGeneration"` を返しました。また、AI Studio の一部 API キー Tier では `ALLOW_ALL` が 400 エラーで弾かれるとの報告もあります（Gemini API 経路での再現は未確認）。いずれの場合も、フラグを省略するか ADC 経路に切り替えてください。
+> `--person-generation` についての注記: 現状は Vertex AI (ADC) 経路でのみ受理されます。`--api-key` / `GEMINI_API_KEY` 経路で利用される AI Studio v1beta エンドポイントは、v0.6.0 時点の Gemini 3 Pro Image においてこのフィールドを認識せず `400 Unknown name "personGeneration"` を返しました。また、AI Studio の一部 API キー Tier では `ALLOW_ALL` が 400 エラーで弾かれるとの報告もあります（Gemini API 経路での再現は未確認）。そのため API キー認証時、CLI はこのフィールドを送信しません。stderr に `[generate] warning: ...` を 1 行出力してフラグを無視し、モデル既定のまま生成します。フラグを有効にしたい場合は ADC 経路を利用してください。
 
 ### モデル一覧
 
@@ -182,6 +182,9 @@ inpainting / outpainting は引き続きスコープ外です。
 <プロンプト>
 Steps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image, Aspect: 1:1[, Person generation: ALLOW_ADULT]
 ```
+
+`Person generation` は、値が実際に API に送信された場合（Vertex AI (ADC)
+経路）にのみ記録されます。
 
 `Steps: 1, Sampler: gemini` は AIview の `parsePrompt`（`Steps:` で分割）
 が期待するプレースホルダです。チャンクは `IEND` の直前に挿入され、

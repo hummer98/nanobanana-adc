@@ -17,6 +17,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   is raised deliberately.
 
 ### Fixed
+- `--person-generation` no longer fails every `generate` call with
+  `400 Unknown name "personGeneration"` on the API-key (AI Studio) path (#13).
+  The AI Studio v1beta endpoint does not accept the field, so under API-key
+  auth the CLI now leaves it out of the request, prints a one-line
+  `[generate] warning: --person-generation <mode> is ignored under API-key
+  auth; ADC (Vertex AI) is required for this flag` to stderr, and generates
+  with the model default. The ignored value is not written to the embedded
+  `parameters` metadata either. The Vertex AI (ADC) path is unchanged and
+  still sends `personGeneration`. `--help`, README and README.ja now state
+  that the flag is Vertex AI (ADC) only.
 - CI: the `validate-plugin` job's version-consistency check read the CLI
   version with a `.version('<x.y.z>')` grep, but `src/cli.ts` has passed a
   `CLI_VERSION` constant to commander since v0.7.0. The grep matched nothing,

@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
 import {
+  buildImageConfig,
   buildParametersString,
+  resolvePersonGeneration,
   resolveOutputPath,
   resolveMimeType,
   writeImage,
@@ -57,6 +59,71 @@ test('buildParametersString: personGeneration token appended when provided', () 
     s,
     'a cat\nSteps: 1, Sampler: gemini, Size: 1024x1024, Model: gemini-3-pro-image, Aspect: 1:1, Person generation: ALLOW_ADULT',
   );
+});
+
+test('buildImageConfig: omits personGeneration when not provided', () => {
+  assert.deepEqual(buildImageConfig({ aspect: '16:9', size: '2K' }), {
+    aspectRatio: '16:9',
+    imageSize: '2K',
+  });
+});
+
+test('buildImageConfig: includes personGeneration when provided', () => {
+  assert.deepEqual(
+    buildImageConfig({
+      aspect: '1:1',
+      size: '1K',
+      personGeneration: 'ALLOW_ADULT',
+    }),
+    { aspectRatio: '1:1', imageSize: '1K', personGeneration: 'ALLOW_ADULT' },
+  );
+});
+
+test('resolvePersonGeneration: adc keeps the value and does not warn', () => {
+  assert.deepEqual(resolvePersonGeneration('adc', 'ALLOW_NONE'), {
+    personGeneration: 'ALLOW_NONE',
+    warning: null,
+  });
+});
+
+test('resolvePersonGeneration: api-key drops the value with one warning line', () => {
+  const r = resolvePersonGeneration('api-key', 'ALLOW_ADULT');
+  assert.equal(r.personGeneration, undefined);
+  assert.ok(r.warning);
+  assert.match(
+    r.warning,
+    /^\[generate\] warning: --person-generation ALLOW_ADULT is ignored/,
+  );
+  assert.match(r.warning, /API-key auth/);
+  assert.match(r.warning, /ADC \(Vertex AI\)/);
+  assert.equal(r.warning.includes('\n'), false);
+});
+
+test('resolvePersonGeneration: no flag means no warning on either path', () => {
+  for (const mode of ['adc', 'api-key'] as const) {
+    assert.deepEqual(resolvePersonGeneration(mode, undefined), {
+      personGeneration: undefined,
+      warning: null,
+    });
+  }
+});
+
+test('api-key path: dropped personGeneration reaches neither the request body nor the metadata', () => {
+  const { personGeneration } = resolvePersonGeneration('api-key', 'ALLOW_ALL');
+  const config = buildImageConfig({
+    aspect: '1:1',
+    size: '1K',
+    ...(personGeneration ? { personGeneration } : {}),
+  });
+  assert.equal('personGeneration' in config, false);
+  const s = buildParametersString({
+    prompt: 'a cat',
+    sizePx: 1024,
+    model: 'gemini-3-pro-image',
+    aspect: '1:1',
+    ...(personGeneration ? { personGeneration } : {}),
+  });
+  assert.equal(s.includes('Person generation'), false);
 });
 
 test('buildParametersString: References token appended when references used', () => {
